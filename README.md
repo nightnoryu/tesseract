@@ -40,17 +40,54 @@ account too; editing `.env` alone does not change persisted passwords.
 
 ## Workspace
 
-- `backend/cmd/tesseract`: minimal Go HTTP process; output in `backend/bin/`.
+- `backend/cmd/tesseract`: Go API with PostgreSQL startup migrations; output in `backend/bin/`.
 - `web/`: React, TypeScript, Vite, Tailwind; output in `web/dist/`.
 - `mise.toml`: pinned toolchain and build, check, and development tasks.
 - `compose.yml`: PostgreSQL and optional SQL Server with persistent volumes.
 - [Decisions](docs/decisions.md): layout adaptation from Lumio and scope choices.
 
-Milestone 1 provides the runnable workspace. Database connections, migrations,
-health/readiness probes, structured logging, and metrics arrive in milestone 2;
-the shared OpenAPI contract and generation arrive in milestone 3. The generator
-versions are already pinned. There are no application tests yet; `check` runs Go
-format/vet/test, TypeScript checking, and Compose validation.
+## Backend operations
+
+The API connects to PostgreSQL and applies embedded go-kita migrations before
+opening its HTTP listener. Startup fails with a safe error code if configuration,
+connectivity, or migrations fail. The pool allows 10 open and 2 idle connections;
+startup has a 30-second deadline, with a 5-second initial connection timeout.
+SIGINT/SIGTERM drains HTTP requests for up to 10 seconds before closing the pool.
+
+`TESSERACT_DATABASE_URL` accepts a PostgreSQL URL without query options. For
+existing milestone 1 `.env` files, remove `?sslmode=disable` from the URL and add
+`PGSSLMODE=disable` for local development. For remote deployments, set
+`PGSSLMODE=verify-full` and `PGSSLROOTCERT` to the CA certificate path. go-kita's
+DSN type cannot preserve URL query parameters, so these are rejected explicitly.
+
+```sh
+curl -i http://localhost:8080/healthz
+curl -i http://localhost:8080/readyz
+curl http://localhost:8080/metrics
+mise run backend:check
+mise run backend:integration  # requires Docker; isolated PostgreSQL container
+```
+
+`/healthz` reports process liveness. `/readyz` performs a database ping with a
+one-second deadline and returns 503 on failure or shutdown. Its separate `dwh`
+field is `not_configured` until milestone 5. `/metrics` exposes basic Go/process,
+HTTP count/duration/in-flight, and LLM count/duration/error metrics. LLM series
+remain zero with fixed `unconfigured` labels until the provider is implemented.
+Keep operational endpoints on a trusted network when deploying.
+
+JSON logs include server-generated `request_id` (also returned as `X-Request-ID`),
+route template, status, duration, and safe error code. Request IDs are available
+in handler context for downstream correlation. Headers, query strings, request
+bodies, raw errors, and unmatched paths are not logged. The API deliberately
+replaces caller-supplied request IDs. No user-controlled values become metric
+labels.
+
+Embedded migrations create `tesseract_app`; future application tables should use
+that schema explicitly. go-kita manages its migration history and advisory lock.
+The integration test verifies migrations across two startups and readiness after
+PostgreSQL stops. Unit tests cover log/metric privacy, panic sanitization,
+readiness, draining, and rejected connection options. OpenAPI generation follows
+in milestone 3.
 
 ## License
 
