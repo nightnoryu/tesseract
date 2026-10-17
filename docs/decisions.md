@@ -37,3 +37,18 @@ LLM metrics have a fixed unconfigured series until milestone 14 introduces
 reviewed provider/model IDs. Readiness depends on PostgreSQL; DWH configuration
 is reported separately and will not make the application process unready.
 Operational handlers remain handwritten until the milestone 3 API contract.
+
+## Milestone 3: canonical HTTP contract
+
+Use OpenAPI 3.0.3, the already pinned ogen/openapi-typescript generators, and
+openapi-fetch bound to generated paths. Generate operational JSON handlers now
+so the React service indicator exercises a real typed request. Keep Prometheus
+text output outside OpenAPI. Generate into a temporary directory for consistency
+checks so stale, missing, and extra files are detected without mutating the tree.
+
+Reserve endpoint names for later milestones with explicit failure responses;
+do not invent domain DTOs before catalog, QuerySpec, and dashboard semantics
+exist. Protected operations declare a session cookie but fail closed for every
+cookie until milestone 9. Common errors, routing failures, and recovered panics
+use generated envelope types with safe messages and a server-generated request
+ID. Route labels come from the generated router's templates.

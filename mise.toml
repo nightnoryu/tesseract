@@ -24,7 +24,7 @@ depends = ["web:modules"]
 run = "pnpm run build"
 
 [tasks.check]
-depends = ["backend:check", "web:check", "compose:check"]
+depends = ["backend:check", "web:check", "compose:check", "api:check"]
 
 [tasks."backend:check"]
 dir = "backend"
@@ -70,3 +70,11 @@ run = "docker compose --profile mssql logs -f"
 [tasks."backend:integration"]
 dir = "backend"
 run = "go test -tags=integration ./... -count=1"
+
+[tasks."api:generate"]
+depends = ["web:modules"]
+run = "bash scripts/generate-api.sh"
+
+[tasks."api:check"]
+depends = ["web:modules"]
+run = "bash scripts/check-api.sh"

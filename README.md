@@ -86,9 +86,40 @@ Embedded migrations create `tesseract_app`; future application tables should use
 that schema explicitly. go-kita manages its migration history and advisory lock.
 The integration test verifies migrations across two startups and readiness after
 PostgreSQL stops. Unit tests cover log/metric privacy, panic sanitization,
-readiness, draining, and rejected connection options. OpenAPI generation follows
-in milestone 3.
+readiness, draining, and rejected connection options.
 
 ## License
 
 [MIT](LICENSE).
+
+## API contract
+
+`api/openapi.yaml` is the canonical contract. ogen 1.24.0 generates the Go
+server, client, and DTOs in `backend/internal/generated/api`; openapi-typescript
+7.13.0 generates `web/src/api/schema.d.ts`. The frontend uses those generated
+paths with openapi-fetch. Never edit generated files manually.
+
+```sh
+mise run api:generate   # after editing the contract
+mise run api:check      # regenerate into a temporary directory and compare
+mise run build
+mise run check         # types, Go tests, formatting, vet, generation
+```
+
+CI runs the consistency check and builds/checks. Comparison includes extra and
+missing generated files and works before files are committed. The React preview
+requests `/healthz` through the typed client and shows the service connection
+state. Vite proxies `/api`, `/healthz`, and `/readyz` to port 8080; production
+hosting must route these paths to Go on the same origin.
+
+Health and readiness use generated handlers. `/metrics` remains a Prometheus
+endpoint outside the JSON contract. Errors use
+`{"error":{"code":"not_implemented","message":"..."},"request_id":"..."}`,
+with the same server-generated ID in `X-Request-ID`.
+
+Auth, catalog, dashboard, query, sharing, and chat routes are reserved contracts;
+they return 501 without accessing data. Protected routes return 401 without a
+session cookie and reject every supplied cookie with 501 until authentication
+is implemented. Request bodies and success schemas will be added in their
+respective milestones, including the strictly typed QuerySpec. No raw SQL
+request interface is exposed.
