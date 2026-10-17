@@ -8,6 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/nightnoryu/go-kita v1.9.0
 	github.com/ogen-go/ogen v1.24.0
+	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/prometheus/client_golang v1.25.0
 	github.com/testcontainers/testcontainers-go v0.44.0
 	go.opentelemetry.io/otel v1.45.0
