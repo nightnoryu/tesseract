@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+backend/bin/
+web/node_modules/
+web/dist/
+.pnpm-store/
+*.tsbuildinfo
+.idea/
+.DS_Store

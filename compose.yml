@@ -1,0 +1,40 @@
+name: tesseract
+services:
+  postgres:
+    image: postgres:18.3-alpine
+    environment:
+      POSTGRES_USER: tesseract
+      POSTGRES_DB: tesseract
+      POSTGRES_PASSWORD: ${TESSERACT_DB_PASSWORD:?Copy .env.example to .env}
+    ports:
+      - "127.0.0.1:${TESSERACT_DB_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tesseract -d tesseract"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  mssql:
+    profiles: [mssql]
+    image: mcr.microsoft.com/mssql/server:2022-CU23-ubuntu-22.04
+    platform: linux/amd64
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${TESSERACT_MSSQL_SA_PASSWORD:-}
+    ports:
+      - "127.0.0.1:${TESSERACT_MSSQL_PORT:-1433}:1433"
+    volumes:
+      - mssql-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "SQLCMDPASSWORD=\"$$MSSQL_SA_PASSWORD\" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -Q 'SELECT 1' -b -o /dev/null"]
+      start_period: 30s
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  postgres-data:
+  mssql-data:

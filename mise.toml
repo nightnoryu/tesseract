@@ -1,0 +1,68 @@
+[tools]
+go = "1.26.8"
+node = "26.8.1"
+pnpm = "12.3.1"
+"go:github.com/ogen-go/ogen/cmd/ogen" = "1.24.0"
+
+[tasks.default]
+depends = ["build", "check"]
+
+[tasks.build]
+depends = ["backend:build", "web:build"]
+
+[tasks."backend:build"]
+dir = "backend"
+run = "go build -trimpath -o bin/tesseract ./cmd/tesseract"
+
+[tasks."web:modules"]
+dir = "web"
+run = "pnpm install --frozen-lockfile"
+
+[tasks."web:build"]
+dir = "web"
+depends = ["web:modules"]
+run = "pnpm run build"
+
+[tasks.check]
+depends = ["backend:check", "web:check", "compose:check"]
+
+[tasks."backend:check"]
+dir = "backend"
+run = ["test -z \"$(gofmt -l .)\"", "go vet ./...", "go test ./..."]
+
+[tasks."web:check"]
+dir = "web"
+depends = ["web:modules"]
+run = "pnpm run check"
+
+[tasks."compose:check"]
+run = "docker compose --env-file .env.example --profile mssql config --quiet"
+
+[tasks.dev]
+depends = ["backend:dev", "web:dev"]
+
+[tasks."backend:dev"]
+dir = "backend"
+depends = ["dev:up"]
+env._.file = "../.env"
+run = "go run ./cmd/tesseract"
+
+[tasks."web:dev"]
+dir = "web"
+depends = ["web:modules", "dev:up"]
+run = "pnpm run dev"
+
+[tasks."dev:up"]
+run = "docker compose up -d --wait"
+
+[tasks."dev:mssql"]
+run = "docker compose --profile mssql up -d --wait"
+
+[tasks."dev:down"]
+run = "docker compose --profile mssql down"
+
+[tasks."dev:ps"]
+run = "docker compose --profile mssql ps"
+
+[tasks."dev:logs"]
+run = "docker compose --profile mssql logs -f"
