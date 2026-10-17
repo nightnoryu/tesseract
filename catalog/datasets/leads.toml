@@ -1,0 +1,44 @@
+[dataset]
+id = "leads"
+source = "crm_dwh"
+schema = "mart"
+table = "MarketingLeads"
+description = "Synthetic local marketing leads; not a production data definition"
+synonyms = ["lead acquisition"]
+
+[[columns]]
+id = "lead_id"
+source_column = "LeadId"
+type = "string"
+expose_to_analytics = false
+
+[[columns]]
+id = "created_at"
+source_column = "CreatedAt"
+type = "datetime"
+expose_to_analytics = true
+
+[[columns]]
+id = "channel"
+source_column = "ChannelName"
+type = "string"
+expose_to_analytics = true
+
+[[measures]]
+id = "lead_count"
+operation = "count_distinct"
+column = "lead_id"
+description = "Distinct non-null synthetic lead IDs"
+synonyms = ["leads acquired"]
+
+[[dimensions]]
+id = "channel"
+column = "channel"
+description = "Acquisition channel"
+operators = ["eq", "ne", "in", "not_in", "is_null", "is_not_null"]
+
+[[dimensions]]
+id = "created_at"
+column = "created_at"
+allowed_granularities = ["day", "month"]
+operators = ["gte", "lt", "between"]

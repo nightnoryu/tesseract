@@ -1,0 +1,6 @@
+version = 1
+
+[[sources]]
+id = "crm_dwh"
+kind = "mssql"
+secret_env = "TESSERACT_DWH_CRM_DSN"
