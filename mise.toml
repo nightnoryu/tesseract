@@ -66,3 +66,7 @@ run = "docker compose --profile mssql ps"
 
 [tasks."dev:logs"]
 run = "docker compose --profile mssql logs -f"
+
+[tasks."backend:integration"]
+dir = "backend"
+run = "go test -tags=integration ./... -count=1"
