@@ -1,0 +1,225 @@
+openapi: 3.0.3
+info:
+  title: Tesseract API
+  version: 0.1.0
+  description: Incremental API. Only health and readiness are implemented. Reserved
+    operations fail closed.
+security:
+- sessionCookie: []
+paths:
+  /healthz:
+    get:
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Current service state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        default:
+          $ref: '#/components/responses/Error'
+  /readyz:
+    get:
+      operationId: getReadiness
+      security: []
+      responses:
+        '200':
+          description: Current service state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Readiness'
+        default:
+          $ref: '#/components/responses/Error'
+        '503':
+          description: Database unavailable or server draining
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Readiness'
+  /api/v1/auth/session:
+    get:
+      operationId: getSession
+      description: Reserved incremental contract. Returns 501 until its implementation
+        milestone; protected routes return 401 when the session cookie is absent.
+        No cookie is trusted and no data is read or written. Request and success schemas
+        will be introduced with that milestone.
+      responses:
+        '501':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      description: Reserved incremental contract. Returns 501 until its implementation
+        milestone; protected routes return 401 when the session cookie is absent.
+        No cookie is trusted and no data is read or written. Request and success schemas
+        will be introduced with that milestone.
+      responses:
+        '501':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+      security: []
+  /api/v1/auth/logout:
+    post:
+      operationId: logout
+      description: Reserved incremental contract. Returns 501 until its implementation
+        milestone; protected routes return 401 when the session cookie is absent.
+        No cookie is trusted and no data is read or written. Request and success schemas
+        will be introduced with that milestone.
+      responses:
+        '501':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/catalog:
+    get:
+      operationId: getCatalog
+      description: Reserved incremental contract. Returns 501 until its implementation
+        milestone; protected routes return 401 when the session cookie is absent.
+        No cookie is trusted and no data is read or written. Request and success schemas
+        will be introduced with that milestone.
+      responses:
+        '501':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/dashboards:
+    get:
+      operationId: listDashboards
+      description: Reserved incremental contract. Returns 501 until its implementation
+        milestone; protected routes return 401 when the session cookie is absent.
+        No cookie is trusted and no data is read or written. Request and success schemas
+        will be introduced with that milestone.
+      responses:
+        '501':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/queries:
+    post:
+      operationId: executeQuery
+      description: Reserved incremental contract. Returns 501 until its implementation
+        milestone; protected routes return 401 when the session cookie is absent.
+        No cookie is trusted and no data is read or written. Request and success schemas
+        will be introduced with that milestone.
+      responses:
+        '501':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+  /api/v1/dashboards/{dashboardId}/shares:
+    get:
+      operationId: listDashboardShares
+      description: Reserved incremental contract. Returns 501 until its implementation
+        milestone; protected routes return 401 when the session cookie is absent.
+        No cookie is trusted and no data is read or written. Request and success schemas
+        will be introduced with that milestone.
+      responses:
+        '501':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: dashboardId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+  /api/v1/chat:
+    post:
+      operationId: sendChatMessage
+      description: Reserved incremental contract. Returns 501 until its implementation
+        milestone; protected routes return 401 when the session cookie is absent.
+        No cookie is trusted and no data is read or written. Request and success schemas
+        will be introduced with that milestone.
+      responses:
+        '501':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: tesseract_session
+  schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      properties:
+        status:
+          type: string
+          enum:
+          - ok
+    Readiness:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      - postgresql
+      - dwh
+      properties:
+        status:
+          type: string
+          enum:
+          - ready
+          - shutting_down
+          - database_unavailable
+        postgresql:
+          type: string
+          enum:
+          - available
+          - unavailable
+          - not_checked
+        dwh:
+          type: string
+          enum:
+          - not_configured
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+      - error
+      - request_id
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required:
+          - code
+          - message
+          properties:
+            code: &id001
+              type: string
+            message: *id001
+        request_id: *id001
+  responses:
+    Error:
+      description: Stable error; request_id matches X-Request-ID.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'

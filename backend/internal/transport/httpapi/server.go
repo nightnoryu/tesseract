@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nightnoryu/go-kita/log"
+	"github.com/nightnoryu/tesseract/internal/generated/api"
 	"github.com/nightnoryu/tesseract/internal/platform/telemetry"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -30,24 +31,10 @@ func New(ping func(context.Context) error, logger log.Logger, metrics *telemetry
 	s := &Server{}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("Tesseract development server\n")) })
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		respond(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
-	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
-		status, code, dbStatus := http.StatusOK, "ready", "available"
-		if s.draining.Load() {
-			status, code, dbStatus = http.StatusServiceUnavailable, "shutting_down", "not_checked"
-		} else {
-			ctx, cancel := context.WithTimeout(r.Context(), time.Second)
-			defer cancel()
-			if err := ping(ctx); err != nil {
-				status, code, dbStatus = http.StatusServiceUnavailable, "database_unavailable", "unavailable"
-			}
-		}
-		respond(w, status, map[string]string{"status": code, "postgresql": dbStatus, "dwh": "not_configured"})
-	})
+	generated := newContractServer(&contract{server: s, ping: ping})
+	mux.Handle("/", generated)
 	mux.Handle("GET /metrics", promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{ErrorHandling: promhttp.HTTPErrorOnError}))
-	s.handler = observe(mux, logger, metrics)
+	s.handler = observe(mux, logger, metrics, generated)
 	return s
 }
 
@@ -84,7 +71,7 @@ func (w *response) Write(b []byte) (int, error) {
 }
 func (w *response) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-func observe(mux *http.ServeMux, logger log.Logger, metrics *telemetry.Metrics) http.Handler {
+func observe(mux *http.ServeMux, logger log.Logger, metrics *telemetry.Metrics, generated ...*api.Server) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		id := rand.Text()
@@ -99,13 +86,18 @@ func observe(mux *http.ServeMux, logger log.Logger, metrics *telemetry.Metrics) 
 		default:
 			route = "unmatched"
 		}
+		if len(generated) > 0 && route == "unmatched" {
+			if matched, ok := generated[0].FindRoute(r.Method, r.URL.Path); ok {
+				route = r.Method + " " + matched.PathPattern()
+			}
+		}
 		defer func() {
 			code := ""
 			abort := false
 			if recover() != nil {
 				code = "internal_error"
 				if out.status == 0 {
-					respond(out, http.StatusInternalServerError, map[string]string{"error": code, "request_id": id})
+					respond(out, http.StatusInternalServerError, envelope(r.Context(), code, "An internal error occurred."))
 				} else {
 					abort = true
 				}
