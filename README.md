@@ -123,3 +123,26 @@ session cookie and reject every supplied cookie with 501 until authentication
 is implemented. Request bodies and success schemas will be added in their
 respective milestones, including the strictly typed QuerySpec. No raw SQL
 request interface is exposed.
+
+## Semantic catalog
+
+```sh
+mise run catalog:validate
+# Or from backend/:
+go run ./cmd/catalog validate -dir ../catalog
+go build -o bin/catalog ./cmd/catalog
+```
+
+The validator exits nonzero for invalid definitions and prints source/dataset
+counts and a deterministic SHA-256 on success. It needs no database or secrets.
+Edit `catalog/sources.toml` (required `version = 1`) and `catalog/datasets/*.toml`.
+The leads example documents the schema: explicit column exposure, named measures,
+dimensions, filter operators, time grains, descriptions and optional synonyms.
+Unknown keys, SQL formulas, unknown references, unsupported types/operations and
+unsafe identifiers are rejected. Omitted operators allow no filters. See
+[the catalog decisions](docs/decisions.md) for the supported vocabulary.
+
+`infra/fixtures/leads.sql` contains matching synthetic SQL Server data. Run it
+explicitly with a SQL Server client supporting `GO`, against an empty local
+DWH as its administrator; it is not an application migration. Catalog validation
+alone does not mean a table exists, is compatible, or is authorized for a user.

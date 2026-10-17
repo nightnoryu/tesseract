@@ -78,3 +78,7 @@ run = "bash scripts/generate-api.sh"
 [tasks."api:check"]
 depends = ["web:modules"]
 run = "bash scripts/check-api.sh"
+
+[tasks."catalog:validate"]
+dir = "backend"
+run = "go run ./cmd/catalog validate -dir ../catalog"

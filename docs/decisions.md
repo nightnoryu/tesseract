@@ -52,3 +52,26 @@ exist. Protected operations declare a session cookie but fail closed for every
 cookie until milestone 9. Common errors, routing failures, and recovered panics
 use generated envelope types with safe messages and a server-generated request
 ID. Route labels come from the generated router's templates.
+
+## Milestone 4: semantic catalog
+
+Version 1 uses strict TOML with one sources file and one dataset per file under
+`datasets/`. Only MSSQL is supported. Logical IDs use lowercase ASCII; physical
+identifiers use a conservative ASCII subset (no qualification or SQL expressions).
+Case-insensitive duplicate physical columns/tables are rejected to remain safe on
+SQL Server's common case-insensitive collations. Each table has one definition.
+
+Exposure is mandatory on every column. Hidden columns may back explicitly named
+measures but cannot be dimensions or direct filters. Filters belong to dimensions
+and permit only their listed operators; an empty list permits no filtering.
+Temporal dimensions must list grains. Count/count_distinct count non-null column
+values; sum/avg require numbers, min/max numbers or dates. No formulas, joins,
+implicit count-star, or inferred fields exist. Descriptions/synonyms are metadata,
+never executable definitions. Synonyms do not grant access or resolve ambiguity.
+
+SHA-256 covers the validated catalog, including descriptions and exposure, using
+canonical JSON with sorted definition and set lists. File names, comments and
+TOML declaration order do not affect it. Validation does not resolve credentials,
+connect to a warehouse, establish compatibility, or grant user entitlements.
+The demo describes synthetic fixture data only; production definitions require
+human review. API publication and DWH checks remain in subsequent milestones.
