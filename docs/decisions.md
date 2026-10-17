@@ -75,3 +75,27 @@ TOML declaration order do not affect it. Validation does not resolve credentials
 connect to a warehouse, establish compatibility, or grant user entitlements.
 The demo describes synthetic fixture data only; production definitions require
 human review. API publication and DWH checks remain in subsequent milestones.
+
+## Milestone 5: DWH boundary
+
+Pin Microsoft's go-mssqldb v1.9.8. Connectors own a validated catalog snapshot
+and accept logical dataset IDs for inspection. Metadata lookups bind schema,
+table and approved column names; they return no uncataloged columns or rows.
+Missing or metadata-invisible tables report `Present=false`; reconciliation will
+assign availability reasons in milestone 6. No application API exposes this probe.
+
+Require membership in SQL Server's db_denydatawriter role, reject administrative
+and broad database permissions, and reject non-read permissions on approved
+objects at connection startup. Provision a dedicated principal with SELECT only
+on approved objects, no extra roles/schema grants, and no executable procedures.
+These checks supplement DBA-managed least privilege; they cannot prove absence
+of every possible server permission or prevent a DBA changing grants later.
+ApplicationIntent=ReadOnly alone does not enforce read-only access.
+
+Connection and operation deadlines, pool size, concurrency and row/group ceilings
+are explicit bounded configuration. Queue wait counts toward the operation deadline.
+Errors omit driver text to avoid disclosing DSNs or server details. The connector
+has a separate aggregate execution path with adapter-local identifier quoting and
+bound limits. Its opaque ValidatedQuery has no constructor yet: milestone 8 must
+add catalog/schema/entitlement validation before any analytics can execute. The
+zero value fails closed. No HTTP query path is enabled by this milestone.

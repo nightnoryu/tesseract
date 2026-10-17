@@ -146,3 +146,37 @@ unsafe identifiers are rejected. Omitted operators allow no filters. See
 explicitly with a SQL Server client supporting `GO`, against an empty local
 DWH as its administrator; it is not an application migration. Catalog validation
 alone does not mean a table exists, is compatible, or is authorized for a user.
+
+### DWH metadata probe (milestone 5)
+
+The SQL Server adapter uses the catalog source kind and resolves its `secret_env`.
+Provision a dedicated SQL Server login/user in the DWH, add it to
+`db_denydatawriter`, and grant `SELECT` only on catalog-approved tables. Do not
+use `sa`, `db_owner`, write-capable roles, schema administration, or procedure
+grants. For example, after creating the login and database user:
+
+```sql
+ALTER ROLE db_denydatawriter ADD MEMBER tesseract_reader;
+GRANT SELECT ON OBJECT::mart.MarketingLeads TO tesseract_reader;
+```
+
+Set `TESSERACT_DWH_CRM_DSN` to a driver URL such as
+`sqlserver://tesseract_reader:<URL-escaped-password>@localhost:1433?database=warehouse&encrypt=true`.
+Use a trusted server certificate in production. For the local self-signed server,
+add `TrustServerCertificate=true`. Apply `infra/fixtures/leads.sql` with an admin
+account in an empty development database first.
+
+```sh
+cd backend
+go run ./cmd/dwh-probe -catalog ../catalog -source crm_dwh -dataset leads
+# Must fail with dwh_object_not_cataloged:
+go run ./cmd/dwh-probe -catalog ../catalog -source crm_dwh -dataset unlisted
+# Real SQL Server test, Docker required:
+go test -tags=integration ./internal/source/... -count=1
+```
+
+The probe prints approved column names/types and table presence, never business
+rows. Defaults: 10s connect, 30s operation, 4 open/2 idle connections, 4 concurrent
+operations, 1,000 result rows/groups. Use `-help` for bounded overrides. Unsupported
+source kinds fail explicitly. Analytical requests remain disabled until milestone
+8 adds schema compatibility and entitlement validation.

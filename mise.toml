@@ -82,3 +82,8 @@ run = "bash scripts/check-api.sh"
 [tasks."catalog:validate"]
 dir = "backend"
 run = "go run ./cmd/catalog validate -dir ../catalog"
+
+[tasks."dwh:probe"]
+dir = "backend"
+env._.file = "../.env"
+run = "go run ./cmd/dwh-probe -catalog ../catalog -source crm_dwh -dataset leads"
