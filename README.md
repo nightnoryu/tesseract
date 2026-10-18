@@ -116,7 +116,7 @@ endpoint outside the JSON contract. Errors use
 `{"error":{"code":"not_implemented","message":"..."},"request_id":"..."}`,
 with the same server-generated ID in `X-Request-ID`.
 
-Password authentication is implemented. Dashboard, query execution, sharing and chat
+Password authentication is implemented. Dashboard, sharing and chat
 handlers remain reserved and return 501 after authentication; unauthenticated
 requests return 401. No raw SQL request interface is exposed.
 
@@ -240,21 +240,17 @@ After a successful `mise run ingest:once`, a local operator with configured
 cd backend
 # Export the database environment variables from your local configuration first.
 printf '%s\n' '{"dataset":"leads","metrics":["lead_count"],"dimensions":[{"id":"channel"}],"order":[{"field":"lead_count","direction":"desc"}],"limit":10}' |
-  go run ./cmd/query -catalog ../catalog -source crm_dwh -dataset leads \
-    -fields lead_count,channel -unrestricted-rows
+  go run ./cmd/query -catalog ../catalog -user YOUR_LOCAL_USER_UUID
 ```
 
 Output is JSON with semantic `columns` and aggregate `rows`, read directly from
-SQL Server. Integer and decimal cells are exact strings to preserve browser precision. The flags explicitly grant this local operator access; missing grants,
-row-scoped access, stale/unverified metadata (15 minutes), undocumented fields,
+SQL Server. Integer and decimal cells are exact strings to preserve browser precision. The operator command resolves the selected user from the access policy; missing grants, stale/unverified metadata (15 minutes), undocumented fields,
 and live schema incompatibility are denied. Add filter-only dimensions to the
 field grant. Filters use typed values, for example
 `{"dimension":"channel","operator":"eq","values":[{"type":"string","value":"paid"}]}`.
 Time dimensions require a catalog-approved `grain`; `date_range` contains a
 dimension and typed `start`/`end` values and uses an exclusive end boundary.
-See `QuerySpec` in `api/openapi.yaml` for the complete shape. The HTTP query route
-remains unimplemented until user data entitlements are available; signing in
-cannot execute analytics.
+See `QuerySpec` in `api/openapi.yaml` for the complete shape. Signed-in users can POST this same JSON to `/api/v1/queries` with the configured Origin header; the backend resolves their data policy from the session identity.
 
 Verification: `cd backend && go test ./... && go vet ./...`; real PostgreSQL +
 SQL Server aggregation and drift checks: `go test -tags=integration ./... -count=1`.
@@ -374,3 +370,56 @@ rate-limit records. Sign out revokes the Tesseract session; it does not sign the
 user out of the identity provider or other applications. Password change still
 requires the local password. The local provisioning process supplies it even
 when users normally choose SSO.
+
+
+## Data access policy
+
+Set `TESSERACT_ACCESS_POLICY` to an operator-managed JSON file, readable by the API.
+Without a file, signed-in users see an empty catalog and all analytical queries
+are denied. A configured invalid file fails startup. Obtain the catalog hash
+with `mise run catalog:validate` and the local user UUID from `cmd/account` or
+the authenticated session response. Example (replace both placeholders):
+
+```json
+{
+  "version": 1,
+  "catalog_hash": "CATALOG_SHA256",
+  "grants": [{
+    "user_id": "LOCAL_USER_UUID",
+    "source": "crm_dwh",
+    "dataset": "leads",
+    "fields": ["lead_count", "created_at"],
+    "row_filters": [{
+      "dimension": "channel",
+      "operator": "eq",
+      "values": [{"type": "string", "value": "paid"}]
+    }]
+  }]
+}
+```
+
+Each user/dataset pair has exactly one grant, with an explicit source and
+metric/dimension IDs. Specify either nonempty `row_filters` or
+`"unrestricted_rows": true`, never both. Omitted row access denies the grant.
+Policy fields and scope filters must exist in the catalog; filters obey the same
+typed values and allowed operators as QuerySpec. Scope dimensions need not be
+granted for user selection. All scope predicates and user filters are ANDed
+before aggregation. Unsupported scopes must receive no grant.
+
+Policies use stable local UUIDs, so password and OIDC sessions have identical
+access. Group/region membership is provisioned by operators as explicit per-user
+grants and typed scope values; no email matching or OIDC claim grants are inferred.
+Policy changes and revocations take effect on API restart. Drain all old instances
+when revoking access. A catalog change requires a newly reviewed matching policy.
+
+The same query service is the entry point for future previews and widget queries:
+always pass the authenticated viewer ID, even for another user's dashboard.
+Dashboard ACLs do not create data grants. No query results are cached, and API
+responses carry `Cache-Control: no-store`. Row restrictions use bound SQL
+parameters, with no SQL Server session context to leak across pooled connections.
+Missing DWH credentials leave that source unavailable. Configured pools connect
+on demand with bounded query deadlines, so a warehouse outage does not block API
+startup. Read-only privileges are checked before each catalog inspection/query.
+
+The CLI is an operator tool requiring direct database credentials; `-user` selects
+whose policy to evaluate, and is not a user authentication mechanism.

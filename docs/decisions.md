@@ -163,3 +163,28 @@ secrets. The start endpoint requires the existing Origin CSRF check and rate
 limit. The callback accepts GET query mode, uses a Lax transaction cookie, and
 returns only fixed same-origin success/failure redirects. Provider tokens are
 neither logged nor retained. Logout is local; provider-wide logout is deferred.
+
+## Milestone 11: data entitlements
+
+Use a strict, immutable operator-managed JSON policy tied to the semantic catalog
+hash and local user UUID. A single grant per user/dataset names its source,
+permitted metric/dimension IDs, and either explicit unrestricted rows or mandatory
+typed filters. Missing grants deny access. Group/region policies are materialized
+as per-user grants; claim-based membership and a policy administration API are
+deferred. Restart/drain API instances to publish or revoke a policy.
+
+Authorize caller fields before adding policy-only scope fields, then validate
+the complete query again. Scope and caller predicates are ANDed and compiled to
+bound T-SQL parameters before aggregation. This uses no pooled connection session
+context. Unsupported row policies get no grant. Catalog discovery filters tables
+and recomputes counts under the same policy. Query responses are never cached.
+
+The authenticated query route and operator CLI resolve grants through the same
+policy service. Future chat previews and widgets must use this service with the
+viewer's local identity; dashboard ownership/ACLs are independent. Sharing routes
+remain reserved for milestone 16; viewer isolation is tested now at the service
+and HTTP query boundaries.
+
+API DWH pools connect on demand so an offline warehouse cannot block authentication
+or catalog availability. Each inspection/query checks read-only privileges;
+query deadlines and concurrency bounds also cover connection attempts.
