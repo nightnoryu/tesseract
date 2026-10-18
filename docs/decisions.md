@@ -144,3 +144,22 @@ Schema inspection also executes `SELECT TOP (0)` over approved columns once all 
 - Strict SameSite/HttpOnly/Secure cookies plus exact configured Origin validation on unsafe API methods cover login CSRF and authenticated mutations. Production origin must be HTTPS. The explicit development override permits only loopback HTTP. No cross-origin API mode or proxy-header trust is introduced.
 - PostgreSQL rate counters apply before password work and are shared across replicas. A four-slot local KDF cap bounds memory pressure; unknown accounts still run a dummy KDF and return the same credential error. Expired records are removed by the scheduled account cleanup command.
 - This supersedes milestone 07's temporary bearer gate: authenticated users may inspect catalog metadata. Query execution remains closed until persistent data entitlements arrive; later milestones add OIDC and authorization without replacing local IDs.
+
+### Milestone 10: OIDC identity linkage
+
+Use coreos/go-oidc v3 with golang.org/x/oauth2 for discovery, signature/issuer/
+audience/expiry validation and authorization code exchange. Explicitly check
+nonce and use S256 PKCE. Discovery may use a configured URL without relaxing
+issuer verification. Only loopback development may use HTTP.
+
+An administrator links `(issuer, subject)` to an existing local user; email and
+other provider claims never merge users or grant permissions. Unique constraints
+reject conflicting links. Both methods issue the same twelve-hour local session;
+issuance locks the enabled user, and session lookup checks disabled status.
+
+PostgreSQL holds five-minute, single-use attempts bound to a random browser
+cookie, with hashes of state/browser/session values and temporary nonce/PKCE
+secrets. The start endpoint requires the existing Origin CSRF check and rate
+limit. The callback accepts GET query mode, uses a Lax transaction cookie, and
+returns only fixed same-origin success/failure redirects. Provider tokens are
+neither logged nor retained. Logout is local; provider-wide logout is deferred.

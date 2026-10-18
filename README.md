@@ -318,3 +318,59 @@ cd ..
 mise exec -- pnpm --dir web run build
 mise exec -- bash scripts/check-api.sh
 ```
+
+### Organizational sign-in (OIDC)
+
+Password login remains available with SSO disabled (the default). To enable SSO,
+register a confidential web application at your OIDC provider with authorization
+code flow, S256 PKCE, and client authentication. Set:
+
+```dotenv
+TESSERACT_OIDC_ENABLED=true
+TESSERACT_OIDC_ISSUER=https://identity.example.com/tenant
+TESSERACT_OIDC_CLIENT_ID=tesseract
+TESSERACT_OIDC_CLIENT_SECRET=<secret from your deployment secret store>
+TESSERACT_OIDC_REDIRECT_URI=https://tesseract.example.com/api/v1/auth/oidc/callback
+TESSERACT_OIDC_SCOPES="openid email profile"
+```
+
+The redirect URI must exactly equal `TESSERACT_PUBLIC_ORIGIN` plus
+`/api/v1/auth/oidc/callback`; register that exact URI with the provider. The API
+must be reachable at that path on the browser origin (the Vite development proxy
+also supports it). Providers must return callbacks as top-level GET redirects
+with query parameters. `openid` is always included. Discovery normally uses the
+issuer's `/.well-known/openid-configuration`; set
+`TESSERACT_OIDC_DISCOVERY_URL` only for a custom metadata location. Its published
+issuer must still match the configured issuer exactly. HTTPS is required, except
+loopback HTTP under the existing explicit insecure development setting. Invalid
+enabled configuration or failed discovery prevents startup; explicitly disable
+SSO to run password-only during a provider outage.
+
+Accounts and links are provisioned by an administrator with database access.
+Create the local account using the existing account command, then independently
+verify the provider's stable subject and exact issuer before linking:
+
+```sh
+cd backend
+go run ./cmd/account -action link-oidc -email alice@example.com \
+  -issuer https://identity.example.com/tenant -subject '<verified subject>'
+```
+
+Each provider identity belongs to one local account; an account has at most one
+subject per issuer. Conflicting links fail rather than moving identities.
+There is no self-registration, email-based linking, or claim-driven permission
+assignment. Email/name/group changes at the provider never change the local
+account or its permissions. A disabled local account cannot sign in through
+SSO, and disabling it revokes all local sessions. Link removal/reassignment is
+not exposed by this milestone; perform any exceptional correction through an
+audited administrative database operation and revoke that user's sessions.
+
+The sign-in page shows **Sign in with your organization** when enabled. Login
+attempts expire after five minutes and are single-use, with state, nonce, PKCE,
+and a browser-bound HttpOnly cookie. Only identity mappings and temporary flow
+secrets are stored; provider tokens are not persisted. Run the existing account
+`cleanup` command regularly to remove expired attempts as well as sessions and
+rate-limit records. Sign out revokes the Tesseract session; it does not sign the
+user out of the identity provider or other applications. Password change still
+requires the local password. The local provisioning process supplies it even
+when users normally choose SSO.
