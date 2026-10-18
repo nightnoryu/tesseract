@@ -35,7 +35,7 @@ run = ["test -z \"$(gofmt -l .)\"", "go vet ./...", "go test ./..."]
 [tasks."web:check"]
 dir = "web"
 depends = ["api:generate"]
-run = "pnpm run check"
+run = ["pnpm run check", "pnpm test"]
 
 [tasks."compose:check"]
 run = "docker compose --env-file .env.example --profile mssql config --quiet"
