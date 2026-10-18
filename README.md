@@ -459,4 +459,21 @@ Each successful save or publish advances `revision`. A stale revision returns 40
 reload before retrying. Draft edits retain the previous `published_revision`.
 Restore a historical spec by saving it with the current revision. Schema drift
 appears as a per-widget `unavailable` state and blocks publication until resolved.
-The dashboard UI and live widget rendering are introduced in milestone 13.
+### Dashboard workspace
+
+After signing in, open **Dashboards**, select a saved dashboard, or choose **New dashboard** and paste a DashboardSpec (such as the example above). The initial
+editor accepts JSON specifications using catalog-approved semantic IDs; the API
+validates queries and the bounded, non-overlapping layout before saving. **Edit**
+saves a new draft; **Publish** publishes the current saved revision. A revision
+conflict keeps your edits so you can copy them before cancelling and reloading.
+
+KPI, table, line, and bar widgets load live aggregates through `/api/v1/queries`.
+Global filter inputs preserve their declared type and operator; **Apply filters**
+updates explicitly mapped widgets without saving the filter changes. **Reload data** reopens the saved spec, rechecks availability, and resets viewer filters.
+Denied, invalid, unavailable, empty, and failed queries are displayed separately.
+Charts include an exact-value table; NULL is displayed as `—`. The catalog tab
+shows metadata availability and remediation guidance. Results never enter browser
+persistent storage or application PostgreSQL.
+
+Use `mise exec -- pnpm --dir web test` for dashboard component tests. The initial
+editor is a specification editor; chat authoring and sharing are later milestones.

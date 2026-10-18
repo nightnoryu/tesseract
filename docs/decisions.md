@@ -219,3 +219,36 @@ stored spec with freshly evaluated per-widget `ready`, `invalid`, `denied`, or
 while saving/reading a dashboard. Renderers must use the query engine again at
 execution time. Operations have a ten-second deadline; list/history pages default
 to 10 and cap at 20. The renderer and widget data fetching remain milestone 13.
+
+## Milestone 13: live dashboard rendering
+
+The authenticated React workspace lists and reopens saved drafts, edits a versioned
+JSON specification, and saves/publishes with the current revision. This initial
+editor deliberately exposes the existing bounded spec; chat authoring follows in
+milestone 14. Viewer filters preserve typed string values and apply only explicit
+widget mappings, ANDed with the original query filters. They are transient; editing
+starts from the saved spec. Invalid changes are rejected by the existing API.
+
+Each ready widget calls the generated direct-query API under the current session.
+Requests are aborted on replacement/unmount and late responses are ignored. No
+results are persisted in browser storage or application PostgreSQL. Schema and
+permission failures remain visible per widget; missing validation fails closed.
+Refreshing the dashboard revalidates the saved spec and reloads its data. Mobile
+layouts stack in grid order; desktop uses the validated 12-column grid.
+
+ECharts options are constructed locally from the widget kind and returned columns;
+no backend chart options, HTML formatters, or executable callbacks are accepted.
+Tooltips use rich text, charts resize/dispose with their containers, and an exact
+value table accompanies each chart. Charts use floating-point plotting; KPI/table
+values retain the API representation, including exact decimal/int64 strings. NULL
+is shown as an em dash rather than fabricated zero. Reaching the query limit warns
+that additional groups may exist. No automatic query retries or result caching.
+
+Chart initialization follows the [ECharts container lifecycle guidance](https://echarts.apache.org/handbook/en/concepts/chart-size/)
+and fixed options follow its [security guidance](https://echarts.apache.org/handbook/en/best-practices/security/).
+A chart-level error boundary keeps the dashboard and exact table usable if a chart
+chunk or renderer fails. An expired dashboard/query session returns to sign-in.
+
+Vite splits the chart's ZRender dependency into a separate renderer chunk. Both
+chart chunks remain behind the lazy chart import, and each stays below Vite's
+default size warning threshold.
