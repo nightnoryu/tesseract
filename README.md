@@ -116,12 +116,9 @@ endpoint outside the JSON contract. Errors use
 `{"error":{"code":"not_implemented","message":"..."},"request_id":"..."}`,
 with the same server-generated ID in `X-Request-ID`.
 
-Auth, dashboard, query, sharing, and chat routes are reserved contracts;
-they return 501 without accessing data. Protected routes return 401 without a
-session cookie and reject every supplied cookie with 501 until authentication
-is implemented. Request bodies and success schemas will be added in their
-respective milestones, including the strictly typed QuerySpec. No raw SQL
-request interface is exposed.
+Password authentication is implemented. Dashboard, query execution, sharing and chat
+handlers remain reserved and return 501 after authentication; unauthenticated
+requests return 401. No raw SQL request interface is exposed.
 
 ## Semantic catalog
 
@@ -215,9 +212,9 @@ timestamp remains unchanged.
 
 ### Catalog availability
 
-Set `TESSERACT_CATALOG_TOKEN` in `.env` to a random operator secret (generate with `openssl rand -hex 32`), restart the API, run `mise run ingest:once`, and open the web app. Enter the token to load or refresh source counts and table statuses. This temporary operator access precedes user login in milestone 9. Empty configuration disables catalog access. Use HTTPS outside localhost; do not put the token in URLs or frontend environment variables.
+Provision an account as described below, restart the API, run `mise run ingest:once`, and sign in to the web app to load or refresh source counts and table statuses.
 
-`GET /api/v1/catalog` requires `Authorization: Bearer <operator token>` and returns the current catalog hash, per-source configured/available/unavailable/stale counts, latest and last successful scan times, and approved table statuses. No DWH connection is made by this endpoint. `TESSERACT_CATALOG_DIR` defaults to `../catalog` when running from `backend`. `TESSERACT_METADATA_MAX_AGE` defaults to `15m` and must be positive and at most `24h`; keep the ingestion interval below it.
+`GET /api/v1/catalog` requires a valid session cookie and returns the current catalog hash, per-source configured/available/unavailable/stale counts, latest and last successful scan times, and approved table statuses. No DWH connection is made by this endpoint. `TESSERACT_CATALOG_DIR` defaults to `../catalog` when running from `backend`. `TESSERACT_METADATA_MAX_AGE` defaults to `15m` and must be positive and at most `24h`; keep the ingestion interval below it.
 
 Expired compatible inspections become unavailable with reason `stale`. Existing failure reasons remain visible even when stale. `not_scanned` means no matching current-catalog inspection exists, including after a catalog change. Failed scans never fall back to an older successful snapshot. `missing_table` can also mean SQL Server hid the object from the inspection account; explicit permission errors use `access_denied`.
 
@@ -256,10 +253,68 @@ field grant. Filters use typed values, for example
 Time dimensions require a catalog-approved `grain`; `date_range` contains a
 dimension and typed `start`/`end` values and uses an exclusive end boundary.
 See `QuerySpec` in `api/openapi.yaml` for the complete shape. The HTTP query route
-remains session-protected until authentication is implemented; the catalog token
+remains unimplemented until user data entitlements are available; signing in
 cannot execute analytics.
 
 Verification: `cd backend && go test ./... && go vet ./...`; real PostgreSQL +
 SQL Server aggregation and drift checks: `go test -tags=integration ./... -count=1`.
 Run `mise run api:check` and `mise run web:check` for generated contract consistency
 and frontend type checking.
+
+## Password accounts
+
+Accounts are administrator-provisioned; there is no public signup or email reset.
+Set `TESSERACT_PUBLIC_ORIGIN` to the exact browser origin (no trailing slash).
+Production requires HTTPS, with the frontend and API on that origin. Secure,
+HttpOnly, SameSite=Strict cookies expire after 12 hours. For local development only,
+`.env.example` enables HTTP cookies at `http://127.0.0.1:5173` using
+`TESSERACT_AUTH_INSECURE_DEVELOPMENT=true`; remove that override in production.
+
+Run account commands from `backend` with `TESSERACT_DATABASE_URL` and PostgreSQL TLS
+settings loaded as for the API. Supply a password of at least 12 characters (maximum
+1024 bytes) through stdin, never an argument. For example, in Bash:
+
+```sh
+read -rs -p 'New password: ' account_password
+printf '%s' "$account_password" | go run ./cmd/account -action create -email analyst@example.com
+unset account_password
+```
+
+Sign in in the browser, then select **Load / refresh** to see protected catalog
+metadata. **Change password** verifies the current password and revokes every
+session. **Sign out** revokes the current session. A successful login rotates the
+browser's previous session. Sessions and account status are checked on every
+protected request; browser refresh restores a valid session without browser storage.
+
+Recovery: an administrator verifies the person's identity outside Tesseract and
+uses the same stdin procedure with `-action reset-password`. Deliver the replacement
+password through an approved private channel; the user can change it after login.
+Disable an account with `go run ./cmd/account -action disable -email analyst@example.com`;
+this immediately revokes sessions. `-action enable` restores login but never old
+sessions. Reset disabled accounts only after explicit re-enablement. Accounts are
+retained for stable identity and future ownership records; deletion is not exposed.
+
+Schedule `go run ./cmd/account -action cleanup` hourly to remove expired sessions and
+rate-limit records. Login limits are shared across API replicas: 10 attempts per
+normalized email and 50 per peer IP per 15-minute window, counting successes too.
+Password changes allow 10 attempts per account/window. Forwarded IP headers are
+ignored; deployments behind a proxy share its IP limit and should additionally
+limit traffic at the proxy. Each process allows four concurrent password KDFs.
+Non-GET API requests require an `Origin` matching the configured public origin,
+including login; scripted clients must send that header. Cookies and responses
+must not be cached by the proxy. The old catalog bearer token is no longer accepted.
+
+Signed-in accounts can see catalog metadata. Analytical HTTP execution remains
+unimplemented pending milestone 11's data entitlements; authentication alone does
+not grant DWH access. OIDC and dashboard access rules are later milestones.
+
+Authentication verification:
+
+```sh
+cd backend
+GOCACHE=/tmp/tesseract-go-build go test ./...
+GOCACHE=/tmp/tesseract-go-build go test -tags=integration ./internal/auth/infrastructure/postgres -count=1
+cd ..
+mise exec -- pnpm --dir web run build
+mise exec -- bash scripts/check-api.sh
+```
