@@ -12,6 +12,8 @@ import (
 
 	"github.com/nightnoryu/go-kita/jsonlog"
 	"github.com/nightnoryu/go-kita/log"
+	auth "github.com/nightnoryu/tesseract/internal/auth/app"
+	authstore "github.com/nightnoryu/tesseract/internal/auth/infrastructure/postgres"
 	metadata "github.com/nightnoryu/tesseract/internal/metadata/app"
 	metastore "github.com/nightnoryu/tesseract/internal/metadata/infrastructure/postgres"
 	"github.com/nightnoryu/tesseract/internal/platform/postgres"
@@ -69,11 +71,11 @@ func run(ctx context.Context, logger log.Logger) error {
 			return errors.New("invalid_metadata_max_age")
 		}
 	}
-	token := os.Getenv("TESSERACT_CATALOG_TOKEN")
-	if token != "" && len(token) < 32 {
-		return errors.New("invalid_catalog_token")
+	authConfig := httpapi.AuthConfig{Service: auth.New(authstore.Store{DB: db.TransactionalClient()}), Origin: os.Getenv("TESSERACT_PUBLIC_ORIGIN"), InsecureDevelopment: os.Getenv("TESSERACT_AUTH_INSECURE_DEVELOPMENT") == "true"}
+	if err := authConfig.Validate(); err != nil {
+		return err
 	}
-	handler := httpapi.New(db.Ping, logger, telemetry.New(), httpapi.CatalogConfig{Availability: metadata.Availability{Catalog: cat, Store: metastore.Store{DB: db.TransactionalClient()}, MaxAge: maxAge}, OperatorToken: token})
+	handler := httpapi.New(db.Ping, logger, telemetry.New(), httpapi.CatalogConfig{Availability: metadata.Availability{Catalog: cat, Store: metastore.Store{DB: db.TransactionalClient()}, MaxAge: maxAge}, Auth: &authConfig})
 	requests, cancelRequests := context.WithCancel(context.Background())
 	defer cancelRequests()
 	server := &http.Server{Addr: address, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,

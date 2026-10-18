@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/nightnoryu/tesseract/internal/auth/domain"
 	"github.com/nightnoryu/tesseract/internal/generated/api"
 	ogenhttp "github.com/ogen-go/ogen/http"
 	"github.com/ogen-go/ogen/ogenerrors"
@@ -13,6 +14,7 @@ import (
 
 type contract struct {
 	api.UnimplementedHandler
+	auth    *AuthConfig
 	catalog *CatalogConfig
 	server  *Server
 	ping    func(context.Context) error
@@ -43,18 +45,19 @@ func (h *contract) GetReadiness(ctx context.Context) (api.GetReadinessRes, error
 	return (*api.GetReadinessOK)(&result), nil
 }
 
-func (h *contract) HandleSessionCookie(ctx context.Context, _ api.OperationName, _ api.SessionCookie) (context.Context, error) {
-	// No cookie is trusted until session verification is implemented.
-	return ctx, ogenhttp.ErrNotImplemented
-}
-
 func (h *contract) NewError(ctx context.Context, err error) *api.ErrorStatusCode {
 	status, code, message := 500, "internal_error", "An internal error occurred."
 	var security *ogenerrors.SecurityError
-	if errors.Is(err, ogenhttp.ErrNotImplemented) {
-		status, code, message = 501, "not_implemented", "This feature is not available yet."
-	} else if errors.As(err, &security) {
+	if errors.As(err, &security) {
 		status, code, message = 401, "unauthorized", "Sign-in is required."
+	} else if errors.Is(err, domain.ErrCredentials) {
+		status, code, message = 401, "invalid_credentials", "Email or password is incorrect."
+	} else if errors.Is(err, domain.ErrLimited) {
+		status, code, message = 429, "rate_limited", "Too many attempts. Try again later."
+	} else if errors.Is(err, domain.ErrPassword) {
+		status, code, message = 400, "invalid_password", "Use a password of at least 12 characters and at most 1024 bytes."
+	} else if errors.Is(err, ogenhttp.ErrNotImplemented) {
+		status, code, message = 501, "not_implemented", "This feature is not available yet."
 	}
 	return &api.ErrorStatusCode{StatusCode: status, Response: envelope(ctx, code, message)}
 }

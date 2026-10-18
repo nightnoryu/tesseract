@@ -2,9 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
-	"errors"
 	"time"
 
 	"github.com/nightnoryu/tesseract/internal/generated/api"
@@ -12,19 +9,8 @@ import (
 )
 
 type CatalogConfig struct {
-	Availability  metadata.Availability
-	OperatorToken string
-}
-
-func (h *contract) HandleCatalogToken(ctx context.Context, _ api.OperationName, token api.CatalogToken) (context.Context, error) {
-	if h.catalog == nil || len(h.catalog.OperatorToken) < 32 {
-		return ctx, errors.New("unauthorized")
-	}
-	expected, supplied := sha256.Sum256([]byte(h.catalog.OperatorToken)), sha256.Sum256([]byte(token.Token))
-	if subtle.ConstantTimeCompare(expected[:], supplied[:]) != 1 {
-		return ctx, errors.New("unauthorized")
-	}
-	return ctx, nil
+	Availability metadata.Availability
+	Auth         *AuthConfig
 }
 
 func (h *contract) GetCatalog(ctx context.Context) (*api.CatalogAvailability, error) {

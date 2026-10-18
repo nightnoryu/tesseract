@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/nightnoryu/go-kita/jsonlog"
+	auth "github.com/nightnoryu/tesseract/internal/auth/app"
+	authstore "github.com/nightnoryu/tesseract/internal/auth/infrastructure/postgres"
 	"github.com/nightnoryu/tesseract/internal/generated/api"
 	metadata "github.com/nightnoryu/tesseract/internal/metadata/app"
 	platform "github.com/nightnoryu/tesseract/internal/platform/postgres"
@@ -15,6 +17,7 @@ import (
 	semantic "github.com/nightnoryu/tesseract/internal/semantic/domain"
 	"github.com/nightnoryu/tesseract/internal/source/infrastructure/mssql"
 	"github.com/nightnoryu/tesseract/internal/transport/httpapi"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -117,12 +120,21 @@ func TestAvailabilitySync(t *testing.T) {
 	worker := metadata.Worker{Catalog: cat, Store: store, Timeout: 10 * time.Second, Open: func(ctx context.Context, c semantic.Catalog, id string) (domain.Connector, error) {
 		return mssql.Open(ctx, c, id, dsn("probe", "warehouse"), mssql.DefaultConfig())
 	}}
-	token := strings.Repeat("a", 32)
-	server := httpapi.New(appDB.Ping, logger, telemetry.New(), httpapi.CatalogConfig{Availability: availability, OperatorToken: token})
+	authDB := authstore.Store{DB: appDB.TransactionalClient()}
+	hashPassword, _ := auth.Hash("integration password")
+	if err := authDB.Provision(ctx, "reader@example.com", hashPassword); err != nil {
+		t.Fatal(err)
+	}
+	authService := auth.New(authDB)
+	_, token, err := authService.Login(ctx, "reader@example.com", "integration password", "local", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httpapi.New(appDB.Ping, logger, telemetry.New(), httpapi.CatalogConfig{Availability: availability, Auth: &httpapi.AuthConfig{Service: authService, Origin: "https://app.example.com"}})
 	read := func(reason string) api.SourceAvailability {
 		t.Helper()
 		req := httptest.NewRequest("GET", "/api/v1/catalog", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.AddCookie(&http.Cookie{Name: "tesseract_session", Value: token})
 		response := httptest.NewRecorder()
 		server.ServeHTTP(response, req)
 		if response.Code != 200 {

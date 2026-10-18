@@ -2,10 +2,13 @@ package httpapi
 
 import (
 	"context"
+	auth "github.com/nightnoryu/tesseract/internal/auth/app"
+	authdomain "github.com/nightnoryu/tesseract/internal/auth/domain"
 	metadata "github.com/nightnoryu/tesseract/internal/metadata/app"
 	"github.com/nightnoryu/tesseract/internal/metadata/domain"
 	"github.com/nightnoryu/tesseract/internal/platform/telemetry"
 	catalog "github.com/nightnoryu/tesseract/internal/semantic/infrastructure"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -24,19 +27,21 @@ func TestCatalogAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token := strings.Repeat("a", 32)
+	token := strings.Repeat("a", 52)
+	store := &authStore{account: authdomain.Account{ID: "00000000-0000-0000-0000-000000000001", Email: "reader@example.com"}, tokens: map[string]time.Time{auth.Digest(token): time.Now().Add(time.Hour)}}
+	service := auth.New(store)
 	for _, tc := range []struct {
-		name, configured, supplied string
-		status                     int
+		name, supplied string
+		status         int
 	}{
-		{"valid", token, token, 200}, {"absent", token, "", 401}, {"invalid", token, "wrong", 401}, {"disabled", "", token, 401},
+		{"valid", token, 200}, {"absent", "", 401}, {"invalid", "wrong", 401},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			reader := &catalogReader{}
-			server := New(func(context.Context) error { return nil }, &capture{}, telemetry.New(), CatalogConfig{OperatorToken: tc.configured, Availability: metadata.Availability{Catalog: cat, Store: reader, MaxAge: time.Minute}})
+			server := New(func(context.Context) error { return nil }, &capture{}, telemetry.New(), CatalogConfig{Auth: &AuthConfig{Service: service, Origin: "https://app.example.com"}, Availability: metadata.Availability{Catalog: cat, Store: reader, MaxAge: time.Minute}})
 			req := httptest.NewRequest("GET", "/api/v1/catalog", nil)
 			if tc.supplied != "" {
-				req.Header.Set("Authorization", "Bearer "+tc.supplied)
+				req.AddCookie(&http.Cookie{Name: "tesseract_session", Value: tc.supplied})
 			}
 			res := httptest.NewRecorder()
 			server.ServeHTTP(res, req)

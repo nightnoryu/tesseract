@@ -34,9 +34,10 @@ func New(ping func(context.Context) error, logger log.Logger, metrics *telemetry
 	h := &contract{server: s, ping: ping}
 	if len(catalog) > 0 {
 		h.catalog = &catalog[0]
+		h.auth = catalog[0].Auth
 	}
 	generated := newContractServer(h)
-	mux.Handle("/", generated)
+	mux.Handle("/", authBoundary(generated, h.auth))
 	mux.Handle("GET /metrics", promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{ErrorHandling: promhttp.HTTPErrorOnError}))
 	s.handler = observe(mux, logger, metrics, generated)
 	return s

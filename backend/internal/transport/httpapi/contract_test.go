@@ -34,8 +34,8 @@ func TestContractErrors(t *testing.T) {
 	}{
 		{"GET", "/api/v1/catalog", "", 401, "unauthorized"},
 		{"GET", "/api/v1/catalog", "tesseract_session=secret", 401, "unauthorized"},
-		{"POST", "/api/v1/auth/login", "", 501, "not_implemented"},
-		{"GET", "/api/v1/dashboards/not-a-uuid/shares", "tesseract_session=secret", 501, "not_implemented"},
+		{"POST", "/api/v1/auth/login", "", 400, "invalid_request"},
+		{"GET", "/api/v1/dashboards/not-a-uuid/shares", "tesseract_session=secret", 401, "unauthorized"},
 		{"GET", "/api/v1/unknown-secret", "", 404, "not_found"},
 		{"DELETE", "/healthz", "", 405, "method_not_allowed"},
 	} {
