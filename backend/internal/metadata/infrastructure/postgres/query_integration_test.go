@@ -7,6 +7,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	access "github.com/nightnoryu/tesseract/internal/access/app"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,6 +63,32 @@ func testAnalyticalQueries(t *testing.T, ctx context.Context, db *sql.DB, cat se
 		return r
 	}
 	base := source.QuerySpec{Dataset: "leads", Metrics: []string{"lead_count"}, Limit: 10}
+	// Execute an identical saved query as two viewers on the same pool.
+	hash, _ := cat.Hash()
+	owner := "00000000-0000-0000-0000-000000000001"
+	viewer := "00000000-0000-0000-0000-000000000002"
+	policy, err := access.Load(strings.NewReader(fmt.Sprintf(`{"version":1,"catalog_hash":%q,"grants":[
+ {"user_id":%q,"source":"crm_dwh","dataset":"leads","fields":["lead_count","channel"],"unrestricted_rows":true},
+ {"user_id":%q,"source":"crm_dwh","dataset":"leads","fields":["lead_count","channel"],"row_filters":[{"dimension":"channel","operator":"eq","values":[{"type":"string","value":"paid"}]}]}
+ ]}`, hash, owner, viewer)), cat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ user, want string }{{owner, "3"}, {viewer, "2"}, {owner, "3"}, {viewer, "2"}} {
+		result, err := policy.Execute(ctx, engine, tc.user, base)
+		if err != nil || len(result.Rows) != 1 || result.Rows[0][0] != tc.want {
+			t.Fatalf("viewer scope: %#v %v", result, err)
+		}
+	}
+	conflicting := base
+	conflicting.Filters = []source.Filter{{Dimension: "channel", Operator: "eq", Values: []source.Value{{Type: "string", Value: "organic"}}}}
+	restricted, err := policy.Execute(ctx, engine, viewer, conflicting)
+	if err != nil || restricted.Rows[0][0] != "0" {
+		t.Fatalf("caller replaced scope: %#v %v", restricted, err)
+	}
+	if _, err := policy.Execute(ctx, engine, "00000000-0000-0000-0000-000000000003", base); !errors.Is(err, source.ErrAccessDenied) {
+		t.Fatal("unentitled viewer executed query", err)
+	}
 	grouped := base
 	grouped.Dimensions = []source.QueryDimension{{ID: "channel"}}
 	grouped.Order = []source.Order{{Field: "lead_count", Direction: "desc"}}

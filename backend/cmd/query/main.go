@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	access "github.com/nightnoryu/tesseract/internal/access/app"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -29,12 +29,9 @@ func main() {
 }
 func run() error {
 	dir := flag.String("catalog", "../catalog", "Reviewed catalog directory")
-	source := flag.String("source", "", "Explicit source grant")
-	dataset := flag.String("dataset", "", "Explicit dataset grant")
-	fields := flag.String("fields", "", "Comma-separated granted metric/dimension IDs")
-	unrestricted := flag.Bool("unrestricted-rows", false, "Confirm this local operator may read all dataset rows")
+	user := flag.String("user", "", "Local user UUID whose data entitlements apply")
 	flag.Parse()
-	if *source == "" || *dataset == "" || *fields == "" || !*unrestricted {
+	if *user == "" {
 		return domain.ErrAccessDenied
 	}
 	spec, err := domain.DecodeQuery(os.Stdin)
@@ -44,6 +41,20 @@ func run() error {
 	cat, err := catalog.Load(os.DirFS(*dir))
 	if err != nil {
 		return domain.ErrInvalidQuery
+	}
+	f, err := os.Open(os.Getenv("TESSERACT_ACCESS_POLICY"))
+	if err != nil {
+		return access.ErrPolicy
+	}
+	policy, err := access.Load(f, cat)
+	_ = f.Close()
+	if err != nil {
+		return err
+	}
+	hash, _ := cat.Hash()
+	grants, err := policy.Resolve(*user, spec.Dataset, hash)
+	if err != nil {
+		return err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -59,13 +70,13 @@ func run() error {
 		return err
 	}
 	defer db.Close()
-	conn, err := sourceapp.Open(ctx, cat, *source, os.Getenv, mssql.DefaultConfig())
+	conn, err := sourceapp.Open(ctx, cat, grants.Source, os.Getenv, mssql.DefaultConfig())
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
-	engine := analytics.Engine{Catalog: cat, Store: metastore.Store{DB: db.TransactionalClient()}, MaxAge: 15 * time.Minute, Connectors: map[string]domain.Connector{*source: conn}}
-	result, err := engine.Execute(ctx, spec, analytics.Grants{Principal: "local-operator", Source: *source, Dataset: *dataset, Fields: strings.Split(*fields, ","), UnrestrictedRows: *unrestricted})
+	engine := analytics.Engine{Catalog: cat, Store: metastore.Store{DB: db.TransactionalClient()}, MaxAge: 15 * time.Minute, Connectors: map[string]domain.Connector{grants.Source: conn}}
+	result, err := policy.Execute(ctx, engine, *user, spec)
 	if err != nil {
 		return err
 	}

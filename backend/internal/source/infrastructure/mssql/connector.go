@@ -42,7 +42,9 @@ type Connector struct {
 
 var _ domain.Connector = (*Connector)(nil)
 
-func Open(ctx context.Context, catalog semantic.Catalog, sourceID, dsn string, cfg Config) (*Connector, error) {
+// New configures a pool without contacting the warehouse. Each operation is
+// bounded and checks read-only privileges before accessing cataloged tables.
+func New(catalog semantic.Catalog, sourceID, dsn string, cfg Config) (*Connector, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -83,14 +85,22 @@ func Open(ctx context.Context, catalog semantic.Catalog, sourceID, dsn string, c
 			c.datasets[d.ID] = d
 		}
 	}
+	return c, nil
+}
+
+func Open(ctx context.Context, catalog semantic.Catalog, sourceID, dsn string, cfg Config) (*Connector, error) {
+	c, err := New(catalog, sourceID, dsn, cfg)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, cfg.ConnectTimeout)
 	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+	if err := c.db.PingContext(ctx); err != nil {
+		c.db.Close()
 		return nil, safeError(ctx, err)
 	}
 	if err := c.checkReadOnly(ctx); err != nil {
-		db.Close()
+		c.db.Close()
 		return nil, err
 	}
 	return c, nil
@@ -166,6 +176,10 @@ func (c *Connector) InspectCatalogTables(ctx context.Context, ids []string) ([]d
 		return nil, err
 	}
 	defer func() { <-c.slots }()
+	if err := c.checkReadOnly(ctx); err != nil {
+		return nil, err
+	}
+
 	result := make([]domain.Table, 0, len(ids))
 	for _, id := range ids {
 		d := c.datasets[id]

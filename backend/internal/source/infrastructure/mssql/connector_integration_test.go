@@ -80,6 +80,14 @@ func TestCatalogInspection(t *testing.T) {
 		}
 		t.Fatalf("admin accepted: %v", err)
 	}
+	lazyAdmin, err := New(cat, "crm_dwh", dsn("sa", "warehouse"), DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lazyAdmin.Close()
+	if _, err := lazyAdmin.InspectCatalogTables(ctx, []string{"leads"}); !errors.Is(err, domain.ErrReadOnly) {
+		t.Fatalf("deferred pool accepted admin: %v", err)
+	}
 	conn, err := Open(ctx, cat, "crm_dwh", dsn("probe", "warehouse"), DefaultConfig())
 	if err != nil {
 		t.Fatal(err)

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/nightnoryu/go-kita/jsonlog"
+	access "github.com/nightnoryu/tesseract/internal/access/app"
 	auth "github.com/nightnoryu/tesseract/internal/auth/app"
 	authstore "github.com/nightnoryu/tesseract/internal/auth/infrastructure/postgres"
 	"github.com/nightnoryu/tesseract/internal/generated/api"
@@ -126,11 +127,21 @@ func TestAvailabilitySync(t *testing.T) {
 		t.Fatal(err)
 	}
 	authService := auth.New(authDB)
-	_, token, err := authService.Login(ctx, "reader@example.com", "integration password", "local", "")
+	session, token, err := authService.Login(ctx, "reader@example.com", "integration password", "local", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := httpapi.New(appDB.Ping, logger, telemetry.New(), httpapi.CatalogConfig{Availability: availability, Auth: &httpapi.AuthConfig{Service: authService, Origin: "https://app.example.com"}})
+	policyHash, _ := cat.Hash()
+	grants := []map[string]any{}
+	for _, d := range cat.Datasets {
+		grants = append(grants, map[string]any{"user_id": session.ID, "source": d.Source, "dataset": d.ID, "fields": []string{d.Measures[0].ID}, "unrestricted_rows": true})
+	}
+	rawPolicy, _ := json.Marshal(map[string]any{"version": 1, "catalog_hash": policyHash, "grants": grants})
+	policy, err := access.Load(strings.NewReader(string(rawPolicy)), cat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httpapi.New(appDB.Ping, logger, telemetry.New(), httpapi.CatalogConfig{Policy: policy, Availability: availability, Auth: &httpapi.AuthConfig{Service: authService, Origin: "https://app.example.com"}})
 	read := func(reason string) api.SourceAvailability {
 		t.Helper()
 		req := httptest.NewRequest("GET", "/api/v1/catalog", nil)

@@ -20,3 +20,17 @@ func Open(ctx context.Context, c semantic.Catalog, id string, lookup func(string
 	}
 	return nil, errors.New("unknown_dwh_source")
 }
+
+// Configure defers network access so a warehouse outage does not prevent API startup.
+func Configure(c semantic.Catalog, id string, lookup func(string) string, cfg mssql.Config) (domain.Connector, error) {
+	for _, s := range c.Sources {
+		if s.ID != id {
+			continue
+		}
+		if s.Kind != "mssql" {
+			return nil, errors.New("unsupported_dwh_connector_kind")
+		}
+		return mssql.New(c, id, lookup(s.SecretEnv), cfg)
+	}
+	return nil, errors.New("unknown_dwh_source")
+}

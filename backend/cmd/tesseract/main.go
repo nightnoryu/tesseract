@@ -3,7 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	access "github.com/nightnoryu/tesseract/internal/access/app"
+	analytics "github.com/nightnoryu/tesseract/internal/analytics/app"
 	oidc "github.com/nightnoryu/tesseract/internal/auth/infrastructure/oidc"
+	sourceapp "github.com/nightnoryu/tesseract/internal/source/app"
+	source "github.com/nightnoryu/tesseract/internal/source/domain"
+	"github.com/nightnoryu/tesseract/internal/source/infrastructure/mssql"
 	"net"
 	"net/http"
 	"os"
@@ -90,10 +95,39 @@ func run(ctx context.Context, logger log.Logger) error {
 		return err
 	}
 	authConfig.OIDCStore = authstore.Store{DB: db.TransactionalClient()}
-	handler := httpapi.New(db.Ping, logger, telemetry.New(), httpapi.CatalogConfig{Availability: metadata.Availability{Catalog: cat, Store: metastore.Store{DB: db.TransactionalClient()}, MaxAge: maxAge}, Auth: &authConfig})
+	var policy *access.Policy
+	if path := os.Getenv("TESSERACT_ACCESS_POLICY"); path != "" {
+		f, err := os.Open(path)
+		if err != nil {
+			return errors.New("invalid_access_policy")
+		}
+		policy, err = access.Load(f, cat)
+		_ = f.Close()
+		if err != nil {
+			return err
+		}
+	}
+	connectors := map[string]source.Connector{}
+	defer func() {
+		for _, conn := range connectors {
+			_ = conn.Close()
+		}
+	}()
+	for _, src := range cat.Sources {
+		if os.Getenv(src.SecretEnv) == "" {
+			continue
+		}
+		conn, err := sourceapp.Configure(cat, src.ID, os.Getenv, mssql.DefaultConfig())
+		if err != nil {
+			return err
+		}
+		connectors[src.ID] = conn
+	}
+	engine := analytics.Engine{Catalog: cat, Store: metastore.Store{DB: db.TransactionalClient()}, MaxAge: maxAge, Connectors: connectors}
+	handler := httpapi.New(db.Ping, logger, telemetry.New(), httpapi.CatalogConfig{Availability: metadata.Availability{Catalog: cat, Store: metastore.Store{DB: db.TransactionalClient()}, MaxAge: maxAge}, Auth: &authConfig, Policy: policy, Engine: engine})
 	requests, cancelRequests := context.WithCancel(context.Background())
 	defer cancelRequests()
-	server := &http.Server{Addr: address, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
+	server := &http.Server{Addr: address, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 40 * time.Second, IdleTimeout: 60 * time.Second,
 		BaseContext: func(net.Listener) context.Context { return requests },
 		// net/http can log raw panic values and request bytes; middleware handles safe request logging.
 		ErrorLog: stdLogger(logger),
