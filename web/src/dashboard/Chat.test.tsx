@@ -1,0 +1,32 @@
+import {afterEach, expect, it, vi} from "vitest";
+import {cleanup, fireEvent, render, screen, waitFor} from "@testing-library/react";
+import {api} from "../api/client";
+import Chat from "./Chat";
+vi.mock("../api/client", () => ({api: {POST: vi.fn()}}));
+afterEach(() => {cleanup(); vi.resetAllMocks();});
+it("continues clarification history and opens the created draft", async () => {
+  const created = vi.fn();
+  vi.mocked(api.POST).mockResolvedValueOnce({data: {session_id: "session", history: [{role: "assistant", content: "Which metric?"}]}, response: {status: 200}} as never);
+  render(<Chat onCreated={created} />);
+  fireEvent.change(screen.getByLabelText("Dashboard request"), {target: {value: "Build charts"}});
+  fireEvent.click(screen.getByRole("button", {name: "Send"}));
+  await screen.findByText(/Which metric/);
+  vi.mocked(api.POST).mockResolvedValueOnce({data: {session_id: "session", history: [{role: "assistant", content: "Created"}], dashboard: {id: "draft"}}, response: {status: 200}} as never);
+  fireEvent.change(screen.getByLabelText("Dashboard request"), {target: {value: "Lead count"}});
+  fireEvent.click(screen.getByRole("button", {name: "Send"}));
+  await waitFor(() => expect(created).toHaveBeenCalledWith({id: "draft"}));
+  expect((vi.mocked(api.POST).mock.lastCall?.[1] as {body?: unknown} | undefined)?.body).toEqual({session_id: "session", message: "Lead count"});
+  expect((screen.getByRole("button", {name: "Send"}) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", {name: "New conversation"}));
+  expect(screen.queryByText(/Created/)).toBeNull();
+});
+it("retains input on failure and handles session expiry", async () => {
+  const expired = vi.fn();
+  vi.mocked(api.POST).mockResolvedValueOnce({error: {error: {message: "Sign-in is required."}}, response: {status: 401}} as never);
+  render(<Chat onCreated={vi.fn()} onSessionExpired={expired} />);
+  fireEvent.change(screen.getByLabelText("Dashboard request"), {target: {value: "Leads"}});
+  fireEvent.click(screen.getByRole("button", {name: "Send"}));
+  await screen.findByRole("alert");
+  expect(expired).toHaveBeenCalledOnce();
+  expect((screen.getByLabelText("Dashboard request") as HTMLTextAreaElement).value).toBe("Leads");
+});

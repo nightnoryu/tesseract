@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
+import Chat from "./Chat";
 import WidgetView from "./WidgetView";
 import { failure, type Dashboard, type Spec } from "./model";
 const blank: Spec = {version: 1, title: "Untitled dashboard", filters: [], widgets: []};
@@ -61,6 +62,7 @@ export default function Dashboards({onSessionExpired}: {onSessionExpired?: () =>
   }
   return <section className="dashboard-workspace mt-8" aria-label="Dashboards">
     <div className="flex flex-wrap items-center gap-3"><h1 className="text-3xl font-semibold mr-auto">Dashboards</h1><button disabled={busy || editing} onClick={() => {setSelected(undefined); setText(JSON.stringify(blank, null, 2)); setEditing(true); setError("");}}>New dashboard</button><button disabled={busy || editing} onClick={() => setReload(r => r + 1)}>Refresh list</button></div>
+    {!editing && <Chat onSessionExpired={onSessionExpired} onCreated={dashboard => {accept(dashboard); setReload(r => r + 1);}} />}
     <div className="mt-6 flex flex-col lg:flex-row gap-6">
       <aside className="lg:w-64 shrink-0" aria-label="Saved dashboards">
         {busy && <p role="status">Loading…</p>}
