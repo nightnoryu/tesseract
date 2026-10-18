@@ -9,14 +9,14 @@ import (
 	source "github.com/nightnoryu/tesseract/internal/source/domain"
 )
 
-// Grants come from trusted caller configuration (later, the identity policy
-// store). A dataset requiring row scoping cannot receive an unrestricted grant.
+// Grants are resolved by trusted application policy, never decoded from requests.
 type Grants struct {
 	Principal        string
 	Source           string
 	Dataset          string
 	Fields           []string
 	UnrestrictedRows bool
+	RowFilters       []source.Filter
 }
 type Engine struct {
 	Catalog    semantic.Catalog
@@ -35,7 +35,7 @@ func (a access) CheckQueryAccess(ctx context.Context, d semantic.Dataset, hash s
 		return err
 	}
 	g := a.grants
-	if g.Principal == "" || g.Source != d.Source || g.Dataset != d.ID || !g.UnrestrictedRows {
+	if g.Principal == "" || g.Source != d.Source || g.Dataset != d.ID || (!g.UnrestrictedRows && len(g.RowFilters) == 0) || (g.UnrestrictedRows && len(g.RowFilters) != 0) {
 		return source.ErrAccessDenied
 	}
 	allowed := map[string]bool{}
@@ -75,6 +75,19 @@ func (e Engine) Execute(ctx context.Context, spec source.QuerySpec, grants Grant
 	q, err := source.ValidateQuery(ctx, e.Catalog, spec, access{e.Store, e.MaxAge, grants})
 	if err != nil {
 		return source.Result{}, err
+	}
+	if len(grants.RowFilters) > 0 {
+		// Authorize the original request before allowing policy-only filter fields.
+		// Both filter sets are ANDed by the compiler; callers cannot replace scope.
+		spec = q.Spec()
+		spec.Filters = append(spec.Filters, grants.RowFilters...)
+		for _, f := range grants.RowFilters {
+			grants.Fields = append(grants.Fields, f.Dimension)
+		}
+		q, err = source.ValidateQuery(ctx, e.Catalog, spec, access{e.Store, e.MaxAge, grants})
+		if err != nil {
+			return source.Result{}, err
+		}
 	}
 	conn := e.Connectors[grants.Source]
 	if conn == nil {
