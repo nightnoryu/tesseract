@@ -117,6 +117,9 @@ func (s Store) SetDisabled(ctx context.Context, email string, disabled bool) err
 	return tx.Commit()
 }
 func (s Store) Cleanup(ctx context.Context) error {
+	if _, err := s.DB.ExecContext(ctx, `DELETE FROM tesseract_app.oidc_attempts WHERE expires_at<=now()`); err != nil {
+		return err
+	}
 	if _, err := s.DB.ExecContext(ctx, `DELETE FROM tesseract_app.sessions WHERE expires_at<=now()`); err != nil {
 		return err
 	}

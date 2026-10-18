@@ -22,8 +22,10 @@ func main() {
 	}
 }
 func run() error {
-	action := flag.String("action", "", "create, reset-password, disable, enable, or cleanup")
+	action := flag.String("action", "", "create, reset-password, disable, enable, link-oidc, or cleanup")
 	raw := flag.String("email", "", "account email")
+	issuer := flag.String("issuer", "", "exact OIDC issuer")
+	subject := flag.String("subject", "", "verified provider subject")
 	flag.Parse()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -46,6 +48,8 @@ func run() error {
 		return err
 	}
 	switch *action {
+	case "link-oidc":
+		return s.LinkOIDC(ctx, email, *issuer, *subject)
 	case "disable", "enable":
 		return s.SetDisabled(ctx, email, *action == "disable")
 	case "create", "reset-password":

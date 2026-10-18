@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	oidc "github.com/nightnoryu/tesseract/internal/auth/infrastructure/oidc"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -75,6 +77,19 @@ func run(ctx context.Context, logger log.Logger) error {
 	if err := authConfig.Validate(); err != nil {
 		return err
 	}
+	enabled := os.Getenv("TESSERACT_OIDC_ENABLED")
+	if enabled != "" && enabled != "true" && enabled != "false" {
+		return errors.New("invalid_oidc_config")
+	}
+	redirect := os.Getenv("TESSERACT_OIDC_REDIRECT_URI")
+	if enabled == "true" && redirect != authConfig.Origin+"/api/v1/auth/oidc/callback" {
+		return errors.New("invalid_oidc_redirect_uri")
+	}
+	authConfig.OIDC, err = oidc.New(ctx, oidc.Config{Enabled: enabled == "true", Issuer: os.Getenv("TESSERACT_OIDC_ISSUER"), DiscoveryURL: os.Getenv("TESSERACT_OIDC_DISCOVERY_URL"), ClientID: os.Getenv("TESSERACT_OIDC_CLIENT_ID"), ClientSecret: os.Getenv("TESSERACT_OIDC_CLIENT_SECRET"), RedirectURI: redirect, Scopes: strings.Fields(os.Getenv("TESSERACT_OIDC_SCOPES")), InsecureDevelopment: authConfig.InsecureDevelopment})
+	if err != nil {
+		return err
+	}
+	authConfig.OIDCStore = authstore.Store{DB: db.TransactionalClient()}
 	handler := httpapi.New(db.Ping, logger, telemetry.New(), httpapi.CatalogConfig{Availability: metadata.Availability{Catalog: cat, Store: metastore.Store{DB: db.TransactionalClient()}, MaxAge: maxAge}, Auth: &authConfig})
 	requests, cancelRequests := context.WithCancel(context.Background())
 	defer cancelRequests()

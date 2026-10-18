@@ -48,6 +48,80 @@ func TestAccountLifecycle(t *testing.T) {
 	defer db.Close()
 	s := Store{DB: db.TransactionalClient()}
 	service := auth.New(s)
+	t.Run("OIDC persistence and identity boundaries", func(t *testing.T) {
+		hash, _ := auth.Hash("a long local password")
+		for _, email := range []string{"sso@example.com", "other@example.com"} {
+			if err := s.Provision(ctx, email, hash); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := s.LinkOIDC(ctx, "sso@example.com", "https://issuer.example", "subject"); err != nil {
+			t.Fatal(err)
+		}
+		for _, link := range [][3]string{{"other@example.com", "https://issuer.example", "subject"}, {"sso@example.com", "https://issuer.example", "other"}, {"missing@example.com", "https://issuer.example", "new"}} {
+			if err := s.LinkOIDC(ctx, link[0], link[1], link[2]); err == nil {
+				t.Fatal("conflicting or absent user linked")
+			}
+		}
+		expires := time.Now().Add(time.Hour)
+		a, err := s.IssueOIDC(ctx, "https://issuer.example", "subject", "sso-token", "", expires)
+		if err != nil {
+			t.Fatal(err)
+		}
+		local, err := s.Account(ctx, "sso@example.com")
+		if err != nil || a.ID != local.ID || a.Email != local.Email {
+			t.Fatal("local identity changed", err)
+		}
+		if _, err := s.IssueOIDC(ctx, "https://other.example", "subject", "invalid", "", expires); !errors.Is(err, domain.ErrCredentials) {
+			t.Fatal("wrong issuer accepted", err)
+		}
+		if _, err := s.IssueOIDC(ctx, "https://issuer.example", "unlinked", "invalid", "", expires); !errors.Is(err, domain.ErrCredentials) {
+			t.Fatal("unlinked identity accepted", err)
+		}
+		if _, err := s.IssueOIDC(ctx, "https://issuer.example", "subject", "rotated", "sso-token", expires); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Session(ctx, "sso-token"); !errors.Is(err, domain.ErrCredentials) {
+			t.Fatal("old session survived", err)
+		}
+		if err := s.SetDisabled(ctx, "sso@example.com", true); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Session(ctx, "rotated"); !errors.Is(err, domain.ErrCredentials) {
+			t.Fatal("disabled session survived", err)
+		}
+		if _, err := s.IssueOIDC(ctx, "https://issuer.example", "subject", "disabled", "", expires); !errors.Is(err, domain.ErrCredentials) {
+			t.Fatal("disabled account accepted", err)
+		}
+		flow := auth.OIDCAttempt{StateHash: "state", BrowserHash: "browser", Nonce: "nonce", Verifier: "verifier", Expires: expires}
+		if err := s.SaveOIDCAttempt(ctx, flow); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.ConsumeOIDCAttempt(ctx, "state", "wrong"); !errors.Is(err, domain.ErrCredentials) {
+			t.Fatal("wrong browser", err)
+		}
+		var successes atomic.Int32
+		var calls sync.WaitGroup
+		for range 2 {
+			calls.Go(func() {
+				if _, err := s.ConsumeOIDCAttempt(ctx, "state", "browser"); err == nil {
+					successes.Add(1)
+				}
+			})
+		}
+		calls.Wait()
+		if successes.Load() != 1 {
+			t.Fatal("flow not single use")
+		}
+		flow.Expires = time.Now().Add(-time.Minute)
+		if err := s.SaveOIDCAttempt(ctx, flow); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.ConsumeOIDCAttempt(ctx, "state", "browser"); !errors.Is(err, domain.ErrCredentials) {
+			t.Fatal("expired flow accepted", err)
+		}
+	})
+
 	hash, _ := auth.Hash("correct horse battery staple")
 	if err := s.Provision(ctx, "user@example.com", hash); err != nil {
 		t.Fatal(err)
