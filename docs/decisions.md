@@ -188,3 +188,34 @@ and HTTP query boundaries.
 API DWH pools connect on demand so an offline warehouse cannot block authentication
 or catalog availability. Each inspection/query checks read-only privileges;
 query deadlines and concurrency bounds also cover connection attempts.
+
+## Milestone 12: dashboard specifications and revisions
+
+DashboardSpec v1 contains only titles, a 12-column by 100-row bounded grid,
+up to 24 KPI/line/bar/table widgets, typed QuerySpecs, and up to 16 global filters.
+Each widget explicitly maps filter IDs to its dataset's dimension IDs. Unmapped
+filters do not affect that widget; each global filter must map to at least one
+widget. Mapped predicates are ANDed with widget predicates, then validated with
+current catalog, metadata, and caller entitlements including mandatory row scope.
+KPI widgets select one metric without grouping; line widgets use one time-grained
+dimension; bars use one dimension. Layouts cannot overlap. Requests retain the
+64 KiB HTTP limit; stored specs have a 60 KiB bound.
+
+PostgreSQL stores dashboard identity/owner and immutable specification revisions,
+never query results. Creation saves revision 1. Each draft save and publish
+increments the dashboard revision; publication also advances the published pointer
+and records a publication revision. Later draft edits preserve the published
+revision. Saves, publishes, and deletion require the current revision, with a row
+lock and atomic transaction preventing lost updates. History is paginated, newest
+first; restoring an old specification means saving it as a new draft revision.
+Deletion removes the dashboard and its history.
+
+All dashboard routes require a session and owner access; unknown and other-owner
+IDs both return 404. Sharing remains milestone 16. Saves and publishes reject
+invalid, denied, or unavailable widget queries. Reads and history return the
+stored spec with freshly evaluated per-widget `ready`, `invalid`, `denied`, or
+`unavailable` states, so schema drift does not hide the recoverable dashboard.
+`ready` means validation passed, not a live DWH connectivity probe. No query runs
+while saving/reading a dashboard. Renderers must use the query engine again at
+execution time. Operations have a ten-second deadline; list/history pages default
+to 10 and cap at 20. The renderer and widget data fetching remain milestone 13.

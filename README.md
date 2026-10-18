@@ -423,3 +423,40 @@ startup. Read-only privileges are checked before each catalog inspection/query.
 
 The CLI is an operator tool requiring direct database credentials; `-user` selects
 whose policy to evaluate, and is not a user authentication mechanism.
+
+### Dashboard persistence API
+
+Authenticated owners can create and reopen dashboards through the generated API.
+All mutations require the configured `Origin` header and a session cookie:
+
+- `POST /api/v1/dashboards`: save a DashboardSpec v1 as revision 1.
+- `GET /api/v1/dashboards?limit=10&offset=0`: list the caller's dashboards.
+- `GET /api/v1/dashboards/{id}`: reopen the current draft with live validation states.
+- `PUT /api/v1/dashboards/{id}/draft`: send `{ "expected_revision": 1, "spec": ... }`.
+- `POST /api/v1/dashboards/{id}/publish`: send `{ "expected_revision": 2 }`.
+- `GET /api/v1/dashboards/{id}/revisions?limit=10&offset=0`: recover saved specifications, newest first.
+- `DELETE /api/v1/dashboards/{id}?expected_revision=3`: delete the dashboard and history.
+
+A minimal create body (requires `leads.lead_count` entitlement and a compatible scan):
+
+```json
+{
+  "version": 1,
+  "title": "Lead overview",
+  "filters": [],
+  "widgets": [{
+    "id": "lead_count",
+    "title": "Leads",
+    "kind": "kpi",
+    "layout": { "x": 0, "y": 0, "width": 3, "height": 2 },
+    "query": { "dataset": "leads", "metrics": ["lead_count"], "limit": 1 },
+    "filter_mappings": []
+  }]
+}
+```
+
+Each successful save or publish advances `revision`. A stale revision returns 409;
+reload before retrying. Draft edits retain the previous `published_revision`.
+Restore a historical spec by saving it with the current revision. Schema drift
+appears as a per-widget `unavailable` state and blocks publication until resolved.
+The dashboard UI and live widget rendering are introduced in milestone 13.
