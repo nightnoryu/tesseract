@@ -68,13 +68,13 @@ func (a access) CheckQueryAccess(ctx context.Context, d semantic.Dataset, hash s
 	}
 	return source.ErrSchemaUnavailable
 }
-func (e Engine) Execute(ctx context.Context, spec source.QuerySpec, grants Grants) (source.Result, error) {
+func (e Engine) Validate(ctx context.Context, spec source.QuerySpec, grants Grants) (source.ValidatedQuery, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	grants.Fields = append([]string(nil), grants.Fields...)
 	q, err := source.ValidateQuery(ctx, e.Catalog, spec, access{e.Store, e.MaxAge, grants})
 	if err != nil {
-		return source.Result{}, err
+		return source.ValidatedQuery{}, err
 	}
 	if len(grants.RowFilters) > 0 {
 		// Authorize the original request before allowing policy-only filter fields.
@@ -86,8 +86,18 @@ func (e Engine) Execute(ctx context.Context, spec source.QuerySpec, grants Grant
 		}
 		q, err = source.ValidateQuery(ctx, e.Catalog, spec, access{e.Store, e.MaxAge, grants})
 		if err != nil {
-			return source.Result{}, err
+			return source.ValidatedQuery{}, err
 		}
+	}
+	return q, nil
+}
+
+func (e Engine) Execute(ctx context.Context, spec source.QuerySpec, grants Grants) (source.Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	q, err := e.Validate(ctx, spec, grants)
+	if err != nil {
+		return source.Result{}, err
 	}
 	conn := e.Connectors[grants.Source]
 	if conn == nil {
