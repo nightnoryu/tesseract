@@ -12,6 +12,7 @@ depends = ["backend:build", "web:build"]
 
 [tasks."backend:build"]
 dir = "backend"
+depends = ["api:generate"]
 run = "go build -trimpath -o bin/tesseract ./cmd/tesseract"
 
 [tasks."web:modules"]
@@ -20,7 +21,7 @@ run = "pnpm install --frozen-lockfile"
 
 [tasks."web:build"]
 dir = "web"
-depends = ["web:modules"]
+depends = ["api:generate"]
 run = "pnpm run build"
 
 [tasks.check]
@@ -28,11 +29,12 @@ depends = ["backend:check", "web:check", "compose:check", "api:check"]
 
 [tasks."backend:check"]
 dir = "backend"
+depends = ["api:generate"]
 run = ["test -z \"$(gofmt -l .)\"", "go vet ./...", "go test ./..."]
 
 [tasks."web:check"]
 dir = "web"
-depends = ["web:modules"]
+depends = ["api:generate"]
 run = "pnpm run check"
 
 [tasks."compose:check"]
@@ -43,13 +45,13 @@ depends = ["backend:dev", "web:dev"]
 
 [tasks."backend:dev"]
 dir = "backend"
-depends = ["dev:up"]
+depends = ["api:generate", "dev:up"]
 env._.file = "../.env"
 run = "go run ./cmd/tesseract"
 
 [tasks."web:dev"]
 dir = "web"
-depends = ["web:modules", "dev:up"]
+depends = ["api:generate", "dev:up"]
 run = "pnpm run dev"
 
 [tasks."dev:up"]
@@ -69,6 +71,7 @@ run = "docker compose --profile mssql logs -f"
 
 [tasks."backend:integration"]
 dir = "backend"
+depends = ["api:generate"]
 run = "go test -tags=integration ./... -count=1"
 
 [tasks."api:generate"]
@@ -76,7 +79,7 @@ depends = ["web:modules"]
 run = "bash scripts/generate-api.sh"
 
 [tasks."api:check"]
-depends = ["web:modules"]
+depends = ["api:generate"]
 run = "bash scripts/check-api.sh"
 
 [tasks."catalog:validate"]

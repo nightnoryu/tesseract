@@ -8,3 +8,7 @@ web/dist/
 *.tsbuildinfo
 .idea/
 .DS_Store
+
+# Generated API bindings
+/backend/internal/generated/api/*_gen.go
+/web/src/api/schema.d.ts
