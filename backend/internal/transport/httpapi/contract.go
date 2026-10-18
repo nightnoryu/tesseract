@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	dashboard "github.com/nightnoryu/tesseract/internal/dashboard/domain"
 	source "github.com/nightnoryu/tesseract/internal/source/domain"
 	"net/http"
 	"time"
@@ -51,6 +52,12 @@ func (h *contract) NewError(ctx context.Context, err error) *api.ErrorStatusCode
 	var security *ogenerrors.SecurityError
 	if errors.As(err, &security) {
 		status, code, message = 401, "unauthorized", "Sign-in is required."
+	} else if errors.Is(err, dashboard.ErrInvalid) {
+		status, code, message = 400, "invalid_dashboard", "The dashboard specification is invalid."
+	} else if errors.Is(err, dashboard.ErrNotFound) {
+		status, code, message = 404, "dashboard_not_found", "Dashboard not found."
+	} else if errors.Is(err, dashboard.ErrConflict) {
+		status, code, message = 409, "revision_conflict", "The dashboard changed. Reload before saving."
 	} else if errors.Is(err, domain.ErrCredentials) {
 		status, code, message = 401, "invalid_credentials", "Email or password is incorrect."
 	} else if errors.Is(err, domain.ErrLimited) {

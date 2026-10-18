@@ -184,17 +184,50 @@ paths:
   /api/v1/dashboards:
     get:
       operationId: listDashboards
-      description: Reserved incremental contract. Returns 501 until its implementation
-        milestone; protected routes return 401 when the session cookie is absent.
-        A valid session is required; no application data is read or written by this reserved handler. Request and success schemas
-        will be introduced with that milestone.
       responses:
-        '501':
-          $ref: '#/components/responses/Error'
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 20
+                items:
+                  $ref: '#/components/schemas/Dashboard'
         default:
           $ref: '#/components/responses/Error'
-        '401':
+      parameters:
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 20
+          default: 10
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          default: 0
+    post:
+      operationId: createDashboard
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dashboard'
+        default:
           $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DashboardSpec'
   /api/v1/queries:
     post:
       operationId: executeQuery
@@ -249,6 +282,127 @@ paths:
           $ref: '#/components/responses/Error'
         '401':
           $ref: '#/components/responses/Error'
+  /api/v1/dashboards/{dashboardId}:
+    parameters:
+    - name: dashboardId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    get:
+      operationId: getDashboard
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dashboard'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteDashboard
+      responses:
+        '204':
+          description: Success
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: expected_revision
+        in: query
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+  /api/v1/dashboards/{dashboardId}/draft:
+    parameters:
+    - name: dashboardId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    put:
+      operationId: saveDashboardDraft
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dashboard'
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveDashboardDraft'
+  /api/v1/dashboards/{dashboardId}/publish:
+    parameters:
+    - name: dashboardId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    post:
+      operationId: publishDashboard
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dashboard'
+        default:
+          $ref: '#/components/responses/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishDashboard'
+  /api/v1/dashboards/{dashboardId}/revisions:
+    parameters:
+    - name: dashboardId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    get:
+      operationId: listDashboardRevisions
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 20
+                items:
+                  $ref: '#/components/schemas/DashboardRevision'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 20
+          default: 10
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          default: 0
 components:
   securitySchemes:
     sessionCookie:
@@ -505,6 +659,240 @@ components:
               type: string
             message: *id001
         request_id: *id001
+    DashboardSpec:
+      type: object
+      additionalProperties: false
+      required:
+      - version
+      - title
+      - filters
+      - widgets
+      properties:
+        version:
+          type: integer
+          enum:
+          - 1
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        filters:
+          type: array
+          maxItems: 16
+          items:
+            $ref: '#/components/schemas/DashboardFilter'
+        widgets:
+          type: array
+          maxItems: 24
+          items:
+            $ref: '#/components/schemas/DashboardWidget'
+    DashboardFilter:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - operator
+      properties:
+        id:
+          type: string
+          pattern: ^[a-z][a-z0-9_]{0,62}$
+        operator:
+          type: string
+          enum:
+          - eq
+          - ne
+          - in
+          - not_in
+          - is_null
+          - is_not_null
+          - lt
+          - lte
+          - gt
+          - gte
+          - between
+        values:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/QueryValue'
+    DashboardWidget:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - title
+      - kind
+      - layout
+      - query
+      - filter_mappings
+      properties:
+        id:
+          type: string
+          pattern: ^[a-z][a-z0-9_]{0,62}$
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        kind:
+          type: string
+          enum:
+          - kpi
+          - line
+          - bar
+          - table
+        layout:
+          $ref: '#/components/schemas/WidgetLayout'
+        query:
+          $ref: '#/components/schemas/QuerySpec'
+        filter_mappings:
+          type: array
+          maxItems: 16
+          items:
+            $ref: '#/components/schemas/FilterMapping'
+    WidgetLayout:
+      type: object
+      additionalProperties: false
+      required:
+      - x
+      - y
+      - width
+      - height
+      properties:
+        x:
+          type: integer
+          minimum: 0
+          maximum: 11
+        y:
+          type: integer
+          minimum: 0
+          maximum: 99
+        width:
+          type: integer
+          minimum: 1
+          maximum: 12
+        height:
+          type: integer
+          minimum: 1
+          maximum: 100
+    FilterMapping:
+      type: object
+      additionalProperties: false
+      required:
+      - filter
+      - dimension
+      properties:
+        filter:
+          type: string
+          pattern: ^[a-z][a-z0-9_]{0,62}$
+        dimension:
+          type: string
+          pattern: ^[a-z][a-z0-9_]{0,62}$
+    WidgetState:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - status
+      properties:
+        id:
+          type: string
+          pattern: ^[a-z][a-z0-9_]{0,62}$
+        status:
+          type: string
+          enum:
+          - ready
+          - invalid
+          - unavailable
+          - denied
+    Dashboard:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - owner
+      - revision
+      - published_revision
+      - created_at
+      - updated_at
+      - spec
+      - widget_states
+      properties:
+        id:
+          type: string
+          format: uuid
+        owner:
+          type: string
+          format: uuid
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        published_revision:
+          type: integer
+          format: int64
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        spec:
+          $ref: '#/components/schemas/DashboardSpec'
+        widget_states:
+          type: array
+          maxItems: 24
+          items:
+            $ref: '#/components/schemas/WidgetState'
+    DashboardRevision:
+      type: object
+      additionalProperties: false
+      required:
+      - revision
+      - published
+      - created_at
+      - spec
+      - widget_states
+      properties:
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        published:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        spec:
+          $ref: '#/components/schemas/DashboardSpec'
+        widget_states:
+          type: array
+          maxItems: 24
+          items:
+            $ref: '#/components/schemas/WidgetState'
+    SaveDashboardDraft:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      - spec
+      properties:
+        expected_revision:
+          type: integer
+          format: int64
+          minimum: 1
+        spec:
+          $ref: '#/components/schemas/DashboardSpec'
+    PublishDashboard:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      properties:
+        expected_revision:
+          type: integer
+          format: int64
+          minimum: 1
   responses:
     Error:
       description: Stable error; request_id matches X-Request-ID.

@@ -6,6 +6,8 @@ import (
 	access "github.com/nightnoryu/tesseract/internal/access/app"
 	analytics "github.com/nightnoryu/tesseract/internal/analytics/app"
 	oidc "github.com/nightnoryu/tesseract/internal/auth/infrastructure/oidc"
+	dashboard "github.com/nightnoryu/tesseract/internal/dashboard/app"
+	dashboardstore "github.com/nightnoryu/tesseract/internal/dashboard/infrastructure/postgres"
 	sourceapp "github.com/nightnoryu/tesseract/internal/source/app"
 	source "github.com/nightnoryu/tesseract/internal/source/domain"
 	"github.com/nightnoryu/tesseract/internal/source/infrastructure/mssql"
@@ -124,7 +126,7 @@ func run(ctx context.Context, logger log.Logger) error {
 		connectors[src.ID] = conn
 	}
 	engine := analytics.Engine{Catalog: cat, Store: metastore.Store{DB: db.TransactionalClient()}, MaxAge: maxAge, Connectors: connectors}
-	handler := httpapi.New(db.Ping, logger, telemetry.New(), httpapi.CatalogConfig{Availability: metadata.Availability{Catalog: cat, Store: metastore.Store{DB: db.TransactionalClient()}, MaxAge: maxAge}, Auth: &authConfig, Policy: policy, Engine: engine})
+	handler := httpapi.New(db.Ping, logger, telemetry.New(), httpapi.CatalogConfig{Availability: metadata.Availability{Catalog: cat, Store: metastore.Store{DB: db.TransactionalClient()}, MaxAge: maxAge}, Auth: &authConfig, Policy: policy, Engine: engine, Dashboards: &dashboard.Service{Store: dashboardstore.Store{DB: db.TransactionalClient()}, Engine: engine, Policy: policy}})
 	requests, cancelRequests := context.WithCancel(context.Background())
 	defer cancelRequests()
 	server := &http.Server{Addr: address, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 40 * time.Second, IdleTimeout: 60 * time.Second,
