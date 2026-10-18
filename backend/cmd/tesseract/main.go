@@ -6,6 +6,7 @@ import (
 	access "github.com/nightnoryu/tesseract/internal/access/app"
 	analytics "github.com/nightnoryu/tesseract/internal/analytics/app"
 	oidc "github.com/nightnoryu/tesseract/internal/auth/infrastructure/oidc"
+	"github.com/nightnoryu/tesseract/internal/chat"
 	dashboard "github.com/nightnoryu/tesseract/internal/dashboard/app"
 	dashboardstore "github.com/nightnoryu/tesseract/internal/dashboard/infrastructure/postgres"
 	sourceapp "github.com/nightnoryu/tesseract/internal/source/app"
@@ -126,10 +127,25 @@ func run(ctx context.Context, logger log.Logger) error {
 		connectors[src.ID] = conn
 	}
 	engine := analytics.Engine{Catalog: cat, Store: metastore.Store{DB: db.TransactionalClient()}, MaxAge: maxAge, Connectors: connectors}
-	handler := httpapi.New(db.Ping, logger, telemetry.New(), httpapi.CatalogConfig{Availability: metadata.Availability{Catalog: cat, Store: metastore.Store{DB: db.TransactionalClient()}, MaxAge: maxAge}, Auth: &authConfig, Policy: policy, Engine: engine, Dashboards: &dashboard.Service{Store: dashboardstore.Store{DB: db.TransactionalClient()}, Engine: engine, Policy: policy}})
+
+	metrics := telemetry.New()
+	insecure := os.Getenv("TESSERACT_LLM_INSECURE_SKIP_VERIFY")
+	if insecure != "" && insecure != "true" && insecure != "false" {
+		return errors.New("invalid_llm_config")
+	}
+	client, err := chat.NewClient(chat.Config{Endpoint: os.Getenv("TESSERACT_LLM_ENDPOINT"), Token: os.Getenv("TESSERACT_LLM_TOKEN"), Model: os.Getenv("TESSERACT_LLM_MODEL"), InsecureSkipTLSVerify: insecure == "true"}, metrics)
+	if err != nil {
+		return err
+	}
+	dashboards := &dashboard.Service{Store: dashboardstore.Store{DB: db.TransactionalClient()}, Engine: engine, Policy: policy}
+	var chats *chat.Service
+	if client != nil {
+		chats = &chat.Service{Client: client, Dashboards: dashboards}
+	}
+	handler := httpapi.New(db.Ping, logger, metrics, httpapi.CatalogConfig{Availability: metadata.Availability{Catalog: cat, Store: metastore.Store{DB: db.TransactionalClient()}, MaxAge: maxAge}, Auth: &authConfig, Policy: policy, Engine: engine, Dashboards: dashboards, Chat: chats})
 	requests, cancelRequests := context.WithCancel(context.Background())
 	defer cancelRequests()
-	server := &http.Server{Addr: address, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 40 * time.Second, IdleTimeout: 60 * time.Second,
+	server := &http.Server{Addr: address, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 100 * time.Second, IdleTimeout: 60 * time.Second,
 		BaseContext: func(net.Listener) context.Context { return requests },
 		// net/http can log raw panic values and request bytes; middleware handles safe request logging.
 		ErrorLog: stdLogger(logger),

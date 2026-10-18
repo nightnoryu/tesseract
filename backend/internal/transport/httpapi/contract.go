@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"github.com/nightnoryu/tesseract/internal/chat"
 	dashboard "github.com/nightnoryu/tesseract/internal/dashboard/domain"
 	source "github.com/nightnoryu/tesseract/internal/source/domain"
 	"net/http"
@@ -52,6 +53,12 @@ func (h *contract) NewError(ctx context.Context, err error) *api.ErrorStatusCode
 	var security *ogenerrors.SecurityError
 	if errors.As(err, &security) {
 		status, code, message = 401, "unauthorized", "Sign-in is required."
+	} else if errors.Is(err, chat.ErrUnavailable) {
+		status, code, message = 503, "chat_unavailable", "Chat is unavailable. Try again later."
+	} else if errors.Is(err, chat.ErrInvalid) {
+		status, code, message = 400, "invalid_chat", "Invalid or expired chat. Start a new conversation."
+	} else if errors.Is(err, chat.ErrBusy) {
+		status, code, message = 429, "chat_busy", "Chat is busy. Try again shortly."
 	} else if errors.Is(err, dashboard.ErrInvalid) {
 		status, code, message = 400, "invalid_dashboard", "The dashboard specification is invalid."
 	} else if errors.Is(err, dashboard.ErrNotFound) {

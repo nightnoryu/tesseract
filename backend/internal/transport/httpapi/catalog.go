@@ -5,6 +5,7 @@ import (
 	access "github.com/nightnoryu/tesseract/internal/access/app"
 	analytics "github.com/nightnoryu/tesseract/internal/analytics/app"
 	auth "github.com/nightnoryu/tesseract/internal/auth/domain"
+	"github.com/nightnoryu/tesseract/internal/chat"
 	dashboard "github.com/nightnoryu/tesseract/internal/dashboard/app"
 	source "github.com/nightnoryu/tesseract/internal/source/domain"
 	"time"
@@ -14,6 +15,7 @@ import (
 )
 
 type CatalogConfig struct {
+	Chat         *chat.Service
 	Dashboards   *dashboard.Service
 	Availability metadata.Availability
 	Auth         *AuthConfig

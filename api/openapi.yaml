@@ -271,16 +271,21 @@ paths:
   /api/v1/chat:
     post:
       operationId: sendChatMessage
-      description: Reserved incremental contract. Returns 501 until its implementation
-        milestone; protected routes return 401 when the session cookie is absent.
-        A valid session is required; no application data is read or written by this reserved handler. Request and success schemas
-        will be introduced with that milestone.
+      description: Create a dashboard through bounded chat. History is private to the authenticated user, expires after one idle hour, and is cleared on server restart. At most 20 messages per session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
       responses:
-        '501':
-          $ref: '#/components/responses/Error'
+        '200':
+          description: Chat history and optional created draft
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
         default:
-          $ref: '#/components/responses/Error'
-        '401':
           $ref: '#/components/responses/Error'
   /api/v1/dashboards/{dashboardId}:
     parameters:
@@ -410,6 +415,40 @@ components:
       in: cookie
       name: tesseract_session
   schemas:
+    ChatRequest:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        message:
+          type: string
+          minLength: 1
+          maxLength: 4000
+    ChatResponse:
+      type: object
+      required: [session_id, history]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        history:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            required: [role, content]
+            properties:
+              role:
+                type: string
+                enum: [user, assistant]
+              content:
+                type: string
+        dashboard:
+          $ref: '#/components/schemas/Dashboard'
+
     Session:
       type: object
       additionalProperties: false

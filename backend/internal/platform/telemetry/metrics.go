@@ -35,11 +35,11 @@ func New() *Metrics {
 	return m
 }
 
-// ObserveLLM accepts no free-form labels; add reviewed provider/model IDs when integrating a provider.
+// ObserveLLM uses fixed labels; endpoint, model configuration and credentials never become labels.
 func (m *Metrics) ObserveLLM(duration time.Duration, failed bool) {
-	m.llmRequests.WithLabelValues("unconfigured", "unconfigured").Inc()
-	m.llmDuration.WithLabelValues("unconfigured", "unconfigured").Observe(duration.Seconds())
+	m.llmRequests.WithLabelValues("openai_compatible", "configured").Inc()
+	m.llmDuration.WithLabelValues("openai_compatible", "configured").Observe(duration.Seconds())
 	if failed {
-		m.llmErrors.WithLabelValues("unconfigured", "unconfigured").Inc()
+		m.llmErrors.WithLabelValues("openai_compatible", "configured").Inc()
 	}
 }
