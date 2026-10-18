@@ -87,3 +87,13 @@ run = "go run ./cmd/catalog validate -dir ../catalog"
 dir = "backend"
 env._.file = "../.env"
 run = "go run ./cmd/dwh-probe -catalog ../catalog -source crm_dwh -dataset leads"
+
+[tasks."ingest:once"]
+dir = "backend"
+env._.file = "../.env"
+run = "go run ./cmd/ingest -once"
+
+[tasks."ingest:worker"]
+dir = "backend"
+env._.file = "../.env"
+run = "go run ./cmd/ingest"

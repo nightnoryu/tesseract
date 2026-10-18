@@ -99,3 +99,20 @@ has a separate aggregate execution path with adapter-local identifier quoting an
 bound limits. Its opaque ValidatedQuery has no constructor yet: milestone 8 must
 add catalog/schema/entitlement validation before any analytics can execute. The
 zero value fails closed. No HTTP query path is enabled by this milestone.
+
+## Metadata snapshots (milestone 6)
+
+Use one PostgreSQL transaction per source, holding a transaction advisory lock
+through DWH inspection and atomic snapshot publication. Lock identity excludes
+catalog hash to prevent overlap across catalog revisions. Transaction rollback
+on process failure releases the lock; completed failures replace earlier green
+snapshots. Source/table concurrency is one and retries occur only on the next
+scheduled cycle. Startup loads a fixed catalog snapshot; restart for changes.
+
+Compatibility is conservative: integers map to SQL Server integer types;
+decimals to exact decimal/numeric/money types; strings to char/varchar/nchar/
+nvarchar/uniqueidentifier; booleans to bit; dates to date; datetimes to
+datetime/datetime2/smalldatetime. Approximate numbers, timezone-bearing values,
+legacy text, binary and unknown types fail closed. All catalog columns,
+including hidden measure inputs, are required. Persist only approved metadata,
+fixed reason codes, and scan timestamps; never connector error text or rows.

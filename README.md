@@ -180,3 +180,36 @@ rows. Defaults: 10s connect, 30s operation, 4 open/2 idle connections, 4 concurr
 operations, 1,000 result rows/groups. Use `-help` for bounded overrides. Unsupported
 source kinds fail explicitly. Analytical requests remain disabled until milestone
 8 adds schema compatibility and entitlement validation.
+
+### Metadata ingestion
+
+With the database and a restricted DWH principal configured in `.env`, run
+`mise run ingest:once` for a manual scan or `mise run ingest:worker` for
+background scans. The worker loads the validated catalog at startup; restart it
+after catalog changes. Direct CLI usage from `backend`:
+
+```sh
+go run ./cmd/ingest -once -catalog ../catalog
+go run ./cmd/ingest -interval 15m -scan-timeout 5m -source crm_dwh
+```
+
+The CLI reads `TESSERACT_DATABASE_URL`, PostgreSQL TLS settings, and each
+catalog source's DSN environment variable. Sources and tables run sequentially
+(concurrency one), with no immediate retries; the next scheduled cycle retries.
+A PostgreSQL transaction lock prevents overlapping scans of the same source
+across processes, including scans with different catalog hashes. Inspection has
+a per-source deadline plus 30 seconds for atomic publication.
+
+`tesseract_app.schema_current` points to a complete snapshot for each
+source/catalog hash. Join it to `schema_scans`, `schema_tables`, and
+`schema_columns` to inspect results. Empty reason means compatible; failures
+record `missing_table`, `missing_column`, `incompatible_type`, or
+`scan_failed`. A published scan can contain unavailable tables; publication
+success does not mean all tables are compatible. Connector errors are sanitized
+to `scan_failed`, since the connector does not distinguish access denial from
+other connection failures. No business rows are queried or stored.
+
+Snapshots retain history. Consumers must match the current catalog hash and
+apply a freshness policy (availability API follows in milestone 7). A cancelled
+worker or PostgreSQL outage cannot publish a new snapshot; the previous scan's
+timestamp remains unchanged.
