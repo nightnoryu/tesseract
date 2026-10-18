@@ -162,6 +162,7 @@ func TestAvailabilitySync(t *testing.T) {
 	if !healthy.LastSuccessfulScan.Set {
 		t.Fatal("missing successful timestamp")
 	}
+	testAnalyticalQueries(t, ctx, db, cat, store, worker)
 	// Even poisoned storage cannot promote an unlisted physical table into the API.
 	hash, _ := cat.Hash()
 	if _, err := store.DB.ExecContext(ctx, `INSERT INTO tesseract_app.schema_tables SELECT scan_id,'unlisted','mart','Unlisted',true,'',now() FROM tesseract_app.schema_current WHERE source_id=$1 AND catalog_hash=$2`, "crm_dwh", hash); err != nil {

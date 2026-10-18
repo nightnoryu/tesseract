@@ -30,22 +30,9 @@ type Table struct {
 	Columns []Column
 }
 
-// ValidatedQuery is opaque. Milestone 8 will mint these only after catalog,
-// schema compatibility and caller entitlement validation. There is deliberately
-// no SQL field or public constructor.
-type ValidatedQuery struct {
-	dataset     string
-	measure     string
-	catalogHash string
-}
-
-func (q ValidatedQuery) Dataset() string     { return q.dataset }
-func (q ValidatedQuery) Measure() string     { return q.measure }
-func (q ValidatedQuery) CatalogHash() string { return q.catalogHash }
-
 type Result struct {
-	Columns []string
-	Rows    [][]any
+	Columns []string `json:"columns"`
+	Rows    [][]any  `json:"rows"`
 }
 type Connector interface {
 	InspectCatalogTables(context.Context, []string) ([]Table, error)

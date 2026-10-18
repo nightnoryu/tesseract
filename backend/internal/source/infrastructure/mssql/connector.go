@@ -5,11 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	driver "github.com/microsoft/go-mssqldb"
+	metadata "github.com/nightnoryu/tesseract/internal/metadata/domain"
 	semantic "github.com/nightnoryu/tesseract/internal/semantic/domain"
 	"github.com/nightnoryu/tesseract/internal/source/domain"
 )
@@ -211,58 +212,60 @@ WHERE s.name=@schema AND t.name=@table AND c.name=@column`, sql.Named("schema", 
 }
 
 func (c *Connector) ExecuteQuery(ctx context.Context, q domain.ValidatedQuery) (domain.Result, error) {
-	// No caller can currently mint a validated query. Keep the execution boundary
-	// ready without bypassing milestone 8's compatibility and authorization gate.
-	d, ok := c.datasets[q.Dataset()]
-	if !ok || q.CatalogHash() != c.hash {
-		return domain.Result{}, domain.ErrInvalidQuery
+	statement, args, names, err := c.compile(q)
+	if err != nil {
+		return domain.Result{}, err
 	}
-	var expression string
-	for _, m := range d.Measures {
-		if m.ID == q.Measure() {
-			var column string
-			for _, col := range d.Columns {
-				if col.ID == m.Column {
-					column = quote(col.SourceColumn)
-				}
-			}
-			switch m.Operation {
-			case "count_distinct":
-				expression = "COUNT_BIG(DISTINCT " + column + ")"
-			case "count":
-				expression = "COUNT_BIG(" + column + ")"
-			case "sum", "avg", "min", "max":
-				expression = m.Operation + "(" + column + ")"
-			}
-		}
+	if err := q.CheckAccess(ctx); err != nil {
+		return domain.Result{}, err
 	}
-	if expression == "" {
-		return domain.Result{}, domain.ErrInvalidQuery
-	}
+
 	ctx, cancel := context.WithTimeout(ctx, c.cfg.QueryTimeout)
 	defer cancel()
+	// A fresh inspection catches drift since ingestion, including type changes
+	// that SQL Server could otherwise silently convert.
+	tables, err := c.InspectCatalogTables(ctx, []string{q.Dataset()})
+	if err != nil {
+		return domain.Result{}, err
+	}
+	if len(tables) != 1 || metadata.Reconcile(c.datasets[q.Dataset()], tables[0], "").Reason != "" {
+		return domain.Result{}, domain.ErrSchemaUnavailable
+	}
+
 	if err := c.acquire(ctx); err != nil {
 		return domain.Result{}, err
 	}
 	defer func() { <-c.slots }()
-	rows, err := c.db.QueryContext(ctx, fmt.Sprintf("SELECT TOP (@limit) %s AS [value] FROM %s.%s", expression, quote(d.Schema), quote(d.Table)), sql.Named("limit", c.cfg.MaxRows+1))
+	if err := q.CheckAccess(ctx); err != nil {
+		return domain.Result{}, err
+	}
+	rows, err := c.db.QueryContext(ctx, statement, args...)
 	if err != nil {
 		return domain.Result{}, safeError(ctx, err)
 	}
 	defer rows.Close()
-	result := domain.Result{Columns: []string{"value"}, Rows: [][]any{}}
+	result := domain.Result{Columns: names, Rows: [][]any{}}
 	for rows.Next() {
 		if len(result.Rows) >= c.cfg.MaxRows {
 			return domain.Result{}, domain.ErrLimit
 		}
-		var value any
-		if err := rows.Scan(&value); err != nil {
+		values := make([]any, len(names))
+		targets := make([]any, len(names))
+		for i := range values {
+			targets[i] = &values[i]
+		}
+		if err := rows.Scan(targets...); err != nil {
 			return domain.Result{}, safeError(ctx, err)
 		}
-		if b, ok := value.([]byte); ok {
-			value = string(b)
+		for i, value := range values {
+			switch v := value.(type) {
+			case []byte:
+				values[i] = string(v)
+			case int64:
+				values[i] = strconv.FormatInt(v, 10)
+			}
 		}
-		result.Rows = append(result.Rows, []any{value})
+		result.Rows = append(result.Rows, values)
 	}
 	if err := rows.Err(); err != nil {
 		return domain.Result{}, safeError(ctx, err)

@@ -96,7 +96,8 @@ readiness, draining, and rejected connection options.
 `api/openapi.yaml` is the canonical contract. ogen 1.24.0 generates the Go
 server, client, and DTOs in `backend/internal/generated/api`; openapi-typescript
 7.13.0 generates `web/src/api/schema.d.ts`. The frontend uses those generated
-paths with openapi-fetch. Never edit generated files manually.
+paths with openapi-fetch. Generated bindings are ignored by Git; build, check,
+and dev tasks generate them automatically. Never edit generated files manually.
 
 ```sh
 mise run api:generate   # after editing the contract
@@ -106,7 +107,7 @@ mise run check         # types, Go tests, formatting, vet, generation
 ```
 
 CI runs the consistency check and builds/checks. Comparison includes extra and
-missing generated files and works before files are committed. The React app
+missing generated files and verifies reproducibility after generation. The React app
 requests `/api/v1/catalog` through the typed client and shows catalog availability. Vite proxies `/api`, `/healthz`, and `/readyz` to port 8080; production
 hosting must route these paths to Go on the same origin.
 
@@ -232,3 +233,33 @@ mise exec -- bash scripts/check-api.sh
 ```
 
 The integration suite requires Docker and runs real PostgreSQL and SQL Server containers, including ingestion through the authenticated availability API, missing tables/columns, type drift, DWH downtime, catalog hash invalidation, and unlisted-object exclusion.
+
+### Direct DWH aggregate queries
+
+After a successful `mise run ingest:once`, a local operator with configured
+`TESSERACT_DATABASE_URL` and DWH credentials can run a strict QuerySpec from stdin:
+
+```sh
+cd backend
+# Export the database environment variables from your local configuration first.
+printf '%s\n' '{"dataset":"leads","metrics":["lead_count"],"dimensions":[{"id":"channel"}],"order":[{"field":"lead_count","direction":"desc"}],"limit":10}' |
+  go run ./cmd/query -catalog ../catalog -source crm_dwh -dataset leads \
+    -fields lead_count,channel -unrestricted-rows
+```
+
+Output is JSON with semantic `columns` and aggregate `rows`, read directly from
+SQL Server. Integer and decimal cells are exact strings to preserve browser precision. The flags explicitly grant this local operator access; missing grants,
+row-scoped access, stale/unverified metadata (15 minutes), undocumented fields,
+and live schema incompatibility are denied. Add filter-only dimensions to the
+field grant. Filters use typed values, for example
+`{"dimension":"channel","operator":"eq","values":[{"type":"string","value":"paid"}]}`.
+Time dimensions require a catalog-approved `grain`; `date_range` contains a
+dimension and typed `start`/`end` values and uses an exclusive end boundary.
+See `QuerySpec` in `api/openapi.yaml` for the complete shape. The HTTP query route
+remains session-protected until authentication is implemented; the catalog token
+cannot execute analytics.
+
+Verification: `cd backend && go test ./... && go vet ./...`; real PostgreSQL +
+SQL Server aggregation and drift checks: `go test -tags=integration ./... -count=1`.
+Run `mise run api:check` and `mise run web:check` for generated contract consistency
+and frontend type checking.

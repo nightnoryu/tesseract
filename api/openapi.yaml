@@ -111,16 +111,21 @@ paths:
   /api/v1/queries:
     post:
       operationId: executeQuery
-      description: Reserved incremental contract. Returns 501 until its implementation
-        milestone; protected routes return 401 when the session cookie is absent.
-        No cookie is trusted and no data is read or written. Request and success schemas
-        will be introduced with that milestone.
+      description: Typed direct-DWH aggregate query. Session access remains closed until password authentication; local operators can use cmd/query with explicit grants.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuerySpec'
       responses:
-        '501':
-          $ref: '#/components/responses/Error'
+        '200':
+          description: Bounded aggregate rows; integer and decimal values are exact strings and SQL NULL is JSON null.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResult'
         default:
-          $ref: '#/components/responses/Error'
-        '401':
           $ref: '#/components/responses/Error'
   /api/v1/dashboards/{dashboardId}/shares:
     get:
@@ -167,6 +172,115 @@ components:
       in: cookie
       name: tesseract_session
   schemas:
+    QuerySpec:
+      type: object
+      additionalProperties: false
+      required: [dataset, metrics, limit]
+      properties:
+        dataset:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,62}$'
+        metrics:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items:
+            type: string
+        dimensions:
+          type: array
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/QueryDimension'
+        filters:
+          type: array
+          maxItems: 16
+          items:
+            $ref: '#/components/schemas/QueryFilter'
+        date_range:
+          $ref: '#/components/schemas/QueryDateRange'
+        order:
+          type: array
+          maxItems: 24
+          items:
+            $ref: '#/components/schemas/QueryOrder'
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 1000
+    QueryDimension:
+      type: object
+      additionalProperties: false
+      required: [id]
+      properties:
+        id:
+          type: string
+        grain:
+          type: string
+          enum: [day, week, month, quarter, year]
+    QueryValue:
+      type: object
+      additionalProperties: false
+      required: [type, value]
+      description: Exact typed scalar. Integer is int64; decimal has at most 20 integral and 18 fractional digits; datetime is RFC3339 normalized to UTC; date is YYYY-MM-DD. NULL uses explicit null operators.
+      properties:
+        type:
+          type: string
+          enum: [string, integer, decimal, boolean, date, datetime]
+        value:
+          type: string
+          maxLength: 2048
+    QueryFilter:
+      type: object
+      additionalProperties: false
+      required: [dimension, operator]
+      properties:
+        dimension:
+          type: string
+        operator:
+          type: string
+          enum: [eq, ne, in, not_in, is_null, is_not_null, lt, lte, gt, gte, between]
+        values:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/QueryValue'
+    QueryDateRange:
+      type: object
+      additionalProperties: false
+      required: [dimension, start, end]
+      description: Half-open interval [start, end); requires catalog gte and lt operators.
+      properties:
+        dimension:
+          type: string
+        start:
+          $ref: '#/components/schemas/QueryValue'
+        end:
+          $ref: '#/components/schemas/QueryValue'
+    QueryOrder:
+      type: object
+      additionalProperties: false
+      required: [field, direction]
+      properties:
+        field:
+          type: string
+        direction:
+          type: string
+          enum: [asc, desc]
+    QueryResult:
+      type: object
+      additionalProperties: false
+      required: [columns, rows]
+      properties:
+        columns:
+          type: array
+          items:
+            type: string
+        rows:
+          type: array
+          maxItems: 1000
+          items:
+            type: array
+            items: {}
     CatalogAvailability:
       type: object
       additionalProperties: false
