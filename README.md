@@ -111,6 +111,14 @@ missing generated files and verifies reproducibility after generation. The React
 requests `/api/v1/catalog` through the typed client and shows catalog availability. Vite proxies `/api`, `/healthz`, and `/readyz` to port 8080; production
 hosting must route these paths to Go on the same origin.
 
+Mise tracks sources and outputs for dependency installation, API generation,
+builds, and local checks, skipping tasks whose inputs have not changed. Backend
+tasks generate only Go bindings; web tasks generate only TypeScript bindings.
+`build` and `check` share a single `web:typecheck` task. Use
+`mise run --force <task>` to rerun a task and its dependencies regardless of
+freshness. Development processes, Compose operations, and integration tests
+always run because they depend on live services or environment settings.
+
 Health and readiness use generated handlers. `/metrics` remains a Prometheus
 endpoint outside the JSON contract. Errors use
 `{"error":{"code":"not_implemented","message":"..."},"request_id":"..."}`,

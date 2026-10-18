@@ -6,6 +6,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v3
-      - run: mise run api:check
-      - run: mise run build
-      - run: mise run check
+      - run: mise run default
