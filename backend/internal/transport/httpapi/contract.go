@@ -13,8 +13,9 @@ import (
 
 type contract struct {
 	api.UnimplementedHandler
-	server *Server
-	ping   func(context.Context) error
+	catalog *CatalogConfig
+	server  *Server
+	ping    func(context.Context) error
 }
 
 func envelope(ctx context.Context, code, message string) api.ErrorEnvelope {

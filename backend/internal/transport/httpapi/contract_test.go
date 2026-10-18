@@ -33,7 +33,7 @@ func TestContractErrors(t *testing.T) {
 		code                 string
 	}{
 		{"GET", "/api/v1/catalog", "", 401, "unauthorized"},
-		{"GET", "/api/v1/catalog", "tesseract_session=secret", 501, "not_implemented"},
+		{"GET", "/api/v1/catalog", "tesseract_session=secret", 401, "unauthorized"},
 		{"POST", "/api/v1/auth/login", "", 501, "not_implemented"},
 		{"GET", "/api/v1/dashboards/not-a-uuid/shares", "tesseract_session=secret", 501, "not_implemented"},
 		{"GET", "/api/v1/unknown-secret", "", 404, "not_found"},

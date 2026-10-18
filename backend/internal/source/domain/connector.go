@@ -8,6 +8,7 @@ import (
 var (
 	ErrNotCataloged = errors.New("dwh_object_not_cataloged")
 	ErrInvalidQuery = errors.New("dwh_query_not_validated")
+	ErrAccessDenied = errors.New("dwh_access_denied")
 	ErrUnavailable  = errors.New("dwh_unavailable")
 	ErrReadOnly     = errors.New("dwh_read_only_credentials_required")
 	ErrLimit        = errors.New("dwh_result_limit_exceeded")

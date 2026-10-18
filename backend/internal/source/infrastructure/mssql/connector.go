@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	driver "github.com/microsoft/go-mssqldb"
@@ -85,7 +86,7 @@ func Open(ctx context.Context, catalog semantic.Catalog, sourceID, dsn string, c
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()
-		return nil, safeError(ctx)
+		return nil, safeError(ctx, err)
 	}
 	if err := c.checkReadOnly(ctx); err != nil {
 		db.Close()
@@ -94,9 +95,16 @@ func Open(ctx context.Context, catalog semantic.Catalog, sourceID, dsn string, c
 	return c, nil
 }
 func (c *Connector) Close() error { return c.db.Close() }
-func safeError(ctx context.Context) error {
+func safeError(ctx context.Context, cause error) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
+	}
+	var sqlError driver.Error
+	if errors.As(cause, &sqlError) {
+		switch sqlError.Number {
+		case 229, 230, 262, 297, 916, 18456:
+			return domain.ErrAccessDenied
+		}
 	}
 	return domain.ErrUnavailable
 }
@@ -121,7 +129,7 @@ func (c *Connector) checkReadOnly(ctx context.Context) error {
  'VIEW ANY COLUMN ENCRYPTION KEY DEFINITION', 'VIEW ANY COLUMN MASTER KEY DEFINITION'))
  THEN 0 ELSE 1 END`).Scan(&unsafe)
 	if err != nil {
-		return safeError(ctx)
+		return safeError(ctx, err)
 	}
 	if unsafe != 0 {
 		return domain.ErrReadOnly
@@ -130,7 +138,7 @@ func (c *Connector) checkReadOnly(ctx context.Context) error {
 		err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sys.fn_my_permissions(@object, 'OBJECT')
  WHERE permission_name NOT IN ('SELECT', 'VIEW DEFINITION')`, sql.Named("object", quote(d.Schema)+"."+quote(d.Table))).Scan(&unsafe)
 		if err != nil {
-			return safeError(ctx)
+			return safeError(ctx, err)
 		}
 		if unsafe != 0 {
 			return domain.ErrReadOnly
@@ -164,7 +172,7 @@ func (c *Connector) InspectCatalogTables(ctx context.Context, ids []string) ([]d
 		var present int
 		err := c.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sys.tables t JOIN sys.schemas s ON s.schema_id=t.schema_id WHERE s.name=@schema AND t.name=@table`, sql.Named("schema", d.Schema), sql.Named("table", d.Table)).Scan(&present)
 		if err != nil {
-			return nil, safeError(ctx)
+			return nil, safeError(ctx, err)
 		}
 		t.Present = present == 1
 		if t.Present {
@@ -177,9 +185,24 @@ WHERE s.name=@schema AND t.name=@table AND c.name=@column`, sql.Named("schema", 
 					continue
 				}
 				if err != nil {
-					return nil, safeError(ctx)
+					return nil, safeError(ctx, err)
 				}
 				t.Columns = append(t.Columns, actual)
+			}
+			// Metadata visibility does not imply SELECT permission. TOP (0)
+			// validates table and column permissions without reading business rows.
+			if len(t.Columns) == len(d.Columns) {
+				columns := make([]string, 0, len(d.Columns))
+				for _, col := range d.Columns {
+					columns = append(columns, quote(col.SourceColumn))
+				}
+				rows, err := c.db.QueryContext(ctx, "SELECT TOP (0) "+strings.Join(columns, ", ")+" FROM "+quote(d.Schema)+"."+quote(d.Table))
+				if err != nil {
+					return nil, safeError(ctx, err)
+				}
+				if err := rows.Close(); err != nil {
+					return nil, safeError(ctx, err)
+				}
 			}
 		}
 		result = append(result, t)
@@ -224,7 +247,7 @@ func (c *Connector) ExecuteQuery(ctx context.Context, q domain.ValidatedQuery) (
 	defer func() { <-c.slots }()
 	rows, err := c.db.QueryContext(ctx, fmt.Sprintf("SELECT TOP (@limit) %s AS [value] FROM %s.%s", expression, quote(d.Schema), quote(d.Table)), sql.Named("limit", c.cfg.MaxRows+1))
 	if err != nil {
-		return domain.Result{}, safeError(ctx)
+		return domain.Result{}, safeError(ctx, err)
 	}
 	defer rows.Close()
 	result := domain.Result{Columns: []string{"value"}, Rows: [][]any{}}
@@ -234,15 +257,15 @@ func (c *Connector) ExecuteQuery(ctx context.Context, q domain.ValidatedQuery) (
 		}
 		var value any
 		if err := rows.Scan(&value); err != nil {
-			return domain.Result{}, safeError(ctx)
+			return domain.Result{}, safeError(ctx, err)
 		}
 		if b, ok := value.([]byte); ok {
 			value = string(b)
 		}
 		result.Rows = append(result.Rows, []any{value})
 	}
-	if rows.Err() != nil {
-		return domain.Result{}, safeError(ctx)
+	if err := rows.Err(); err != nil {
+		return domain.Result{}, safeError(ctx, err)
 	}
 	return result, nil
 }

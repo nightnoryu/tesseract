@@ -26,12 +26,11 @@ func (UnimplementedHandler) ExecuteQuery(ctx context.Context) (r ExecuteQueryRes
 
 // GetCatalog implements getCatalog operation.
 //
-// Reserved incremental contract. Returns 501 until its implementation milestone; protected routes
-// return 401 when the session cookie is absent. No cookie is trusted and no data is read or written.
-// Request and success schemas will be introduced with that milestone.
+// Catalog-only metadata availability. Requires the configured operator bearer token until user
+// authentication is implemented.
 //
 // GET /api/v1/catalog
-func (UnimplementedHandler) GetCatalog(ctx context.Context) (r GetCatalogRes, _ error) {
+func (UnimplementedHandler) GetCatalog(ctx context.Context) (r *CatalogAvailability, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

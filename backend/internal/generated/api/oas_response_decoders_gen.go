@@ -137,10 +137,10 @@ func decodeExecuteQueryResponse(resp *http.Response) (res ExecuteQueryRes, _ err
 	return res, errors.Wrap(defRes, "error")
 }
 
-func decodeGetCatalogResponse(resp *http.Response) (res GetCatalogRes, _ error) {
+func decodeGetCatalogResponse(resp *http.Response) (res *CatalogAvailability, _ error) {
 	switch resp.StatusCode {
-	case 401:
-		// Code 401.
+	case 200:
+		// Code 200.
 		ct, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 		if err != nil {
 			return res, errors.Wrap(err, "parse media type")
@@ -153,7 +153,7 @@ func decodeGetCatalogResponse(resp *http.Response) (res GetCatalogRes, _ error) 
 			}
 			d := jx.DecodeBytes(buf)
 
-			var response ErrorEnvelope
+			var response CatalogAvailability
 			if err := func() error {
 				if err := response.Decode(d); err != nil {
 					return err
@@ -170,48 +170,16 @@ func decodeGetCatalogResponse(resp *http.Response) (res GetCatalogRes, _ error) 
 				}
 				return res, err
 			}
-			return &GetCatalogUnauthorized{
-				StatusCode: resp.StatusCode,
-				Response:   response,
-			}, nil
-		default:
-			return res, validate.InvalidContentType(ct)
-		}
-	case 501:
-		// Code 501.
-		ct, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-		if err != nil {
-			return res, errors.Wrap(err, "parse media type")
-		}
-		switch {
-		case ct == "application/json":
-			buf, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return res, err
-			}
-			d := jx.DecodeBytes(buf)
-
-			var response ErrorEnvelope
+			// Validate response.
 			if err := func() error {
-				if err := response.Decode(d); err != nil {
+				if err := response.Validate(); err != nil {
 					return err
-				}
-				if err := d.Skip(); err != io.EOF {
-					return errors.New("unexpected trailing data")
 				}
 				return nil
 			}(); err != nil {
-				err = &ogenerrors.DecodeBodyError{
-					ContentType: ct,
-					Body:        buf,
-					Err:         err,
-				}
-				return res, err
+				return res, errors.Wrap(err, "validate")
 			}
-			return &GetCatalogNotImplemented{
-				StatusCode: resp.StatusCode,
-				Response:   response,
-			}, nil
+			return &response, nil
 		default:
 			return res, validate.InvalidContentType(ct)
 		}

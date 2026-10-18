@@ -39,12 +39,11 @@ type Invoker interface {
 	ExecuteQuery(ctx context.Context) (ExecuteQueryRes, error)
 	// GetCatalog invokes getCatalog operation.
 	//
-	// Reserved incremental contract. Returns 501 until its implementation milestone; protected routes
-	// return 401 when the session cookie is absent. No cookie is trusted and no data is read or written.
-	// Request and success schemas will be introduced with that milestone.
+	// Catalog-only metadata availability. Requires the configured operator bearer token until user
+	// authentication is implemented.
 	//
 	// GET /api/v1/catalog
-	GetCatalog(ctx context.Context) (GetCatalogRes, error)
+	GetCatalog(ctx context.Context) (*CatalogAvailability, error)
 	// GetHealth invokes getHealth operation.
 	//
 	// GET /healthz
@@ -261,17 +260,16 @@ func (c *Client) sendExecuteQuery(ctx context.Context) (res ExecuteQueryRes, err
 
 // GetCatalog invokes getCatalog operation.
 //
-// Reserved incremental contract. Returns 501 until its implementation milestone; protected routes
-// return 401 when the session cookie is absent. No cookie is trusted and no data is read or written.
-// Request and success schemas will be introduced with that milestone.
+// Catalog-only metadata availability. Requires the configured operator bearer token until user
+// authentication is implemented.
 //
 // GET /api/v1/catalog
-func (c *Client) GetCatalog(ctx context.Context) (GetCatalogRes, error) {
+func (c *Client) GetCatalog(ctx context.Context) (*CatalogAvailability, error) {
 	res, err := c.sendGetCatalog(ctx)
 	return res, err
 }
 
-func (c *Client) sendGetCatalog(ctx context.Context) (res GetCatalogRes, err error) {
+func (c *Client) sendGetCatalog(ctx context.Context) (res *CatalogAvailability, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("getCatalog"),
 		semconv.HTTPRequestMethodKey.String("GET"),
@@ -322,14 +320,14 @@ func (c *Client) sendGetCatalog(ctx context.Context) (res GetCatalogRes, err err
 		type bitset = [1]uint8
 		var satisfied bitset
 		{
-			stage = "Security:SessionCookie"
-			switch err := c.securitySessionCookie(ctx, GetCatalogOperation, r); {
+			stage = "Security:CatalogToken"
+			switch err := c.securityCatalogToken(ctx, GetCatalogOperation, r); {
 			case err == nil: // if NO error
 				satisfied[0] |= 1 << 0
 			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
 				// Skip this security.
 			default:
-				return res, errors.Wrap(err, "security \"SessionCookie\"")
+				return res, errors.Wrap(err, "security \"CatalogToken\"")
 			}
 		}
 

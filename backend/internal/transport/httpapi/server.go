@@ -27,11 +27,15 @@ type Server struct {
 	handler  http.Handler
 }
 
-func New(ping func(context.Context) error, logger log.Logger, metrics *telemetry.Metrics) *Server {
+func New(ping func(context.Context) error, logger log.Logger, metrics *telemetry.Metrics, catalog ...CatalogConfig) *Server {
 	s := &Server{}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("Tesseract development server\n")) })
-	generated := newContractServer(&contract{server: s, ping: ping})
+	h := &contract{server: s, ping: ping}
+	if len(catalog) > 0 {
+		h.catalog = &catalog[0]
+	}
+	generated := newContractServer(h)
 	mux.Handle("/", generated)
 	mux.Handle("GET /metrics", promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{ErrorHandling: promhttp.HTTPErrorOnError}))
 	s.handler = observe(mux, logger, metrics, generated)
@@ -77,6 +81,9 @@ func observe(mux *http.ServeMux, logger log.Logger, metrics *telemetry.Metrics, 
 		id := rand.Text()
 		r = r.WithContext(context.WithValue(r.Context(), requestIDKey{}, id))
 		w.Header().Set("X-Request-ID", id)
+		if r.URL.Path == "/api/v1/catalog" {
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		out := &response{ResponseWriter: w}
 		metrics.InFlight.Inc()
 		// ServeMux may return a redirect path as its pattern. Admit only registered templates.

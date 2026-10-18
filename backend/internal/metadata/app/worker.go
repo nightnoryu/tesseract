@@ -57,10 +57,16 @@ func (w Worker) Scan(ctx context.Context, sourceID string) error {
 			var actual source.Table
 			if openErr != nil {
 				failure = "scan_failed"
+				if errors.Is(openErr, source.ErrAccessDenied) {
+					failure = "access_denied"
+				}
 			} else {
 				tables, err := conn.InspectCatalogTables(scanCtx, []string{d.ID})
 				if err != nil || len(tables) != 1 {
 					failure = "scan_failed"
+					if errors.Is(err, source.ErrAccessDenied) {
+						failure = "access_denied"
+					}
 				} else {
 					actual = tables[0]
 				}

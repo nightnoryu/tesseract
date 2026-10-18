@@ -13,6 +13,8 @@ import (
 
 // SecurityHandler is handler for security parameters.
 type SecurityHandler interface {
+	// HandleCatalogToken handles catalogToken security.
+	HandleCatalogToken(ctx context.Context, operationName OperationName, t CatalogToken) (context.Context, error)
 	// HandleSessionCookie handles sessionCookie security.
 	HandleSessionCookie(ctx context.Context, operationName OperationName, t SessionCookie) (context.Context, error)
 }
@@ -32,10 +34,35 @@ func findAuthorization(h http.Header, prefix string) (string, bool) {
 	return "", false
 }
 
+// operationRolesCatalogToken is a private map storing roles per operation.
+var operationRolesCatalogToken = map[string][]string{
+	GetCatalogOperation: []string{},
+}
+
+// GetRolesForCatalogToken returns the required roles for the given operation.
+//
+// This is useful for authorization scenarios where you need to know which roles
+// are required for an operation.
+//
+// Example:
+//
+//	requiredRoles := GetRolesForCatalogToken(AddPetOperation)
+//
+// Returns nil if the operation has no role requirements or if the operation is unknown.
+func GetRolesForCatalogToken(operation string) []string {
+	roles, ok := operationRolesCatalogToken[operation]
+	if !ok {
+		return nil
+	}
+	// Return a copy to prevent external modification
+	result := make([]string, len(roles))
+	copy(result, roles)
+	return result
+}
+
 // operationRolesSessionCookie is a private map storing roles per operation.
 var operationRolesSessionCookie = map[string][]string{
 	ExecuteQueryOperation:        []string{},
-	GetCatalogOperation:          []string{},
 	GetSessionOperation:          []string{},
 	ListDashboardSharesOperation: []string{},
 	ListDashboardsOperation:      []string{},
@@ -64,6 +91,23 @@ func GetRolesForSessionCookie(operation string) []string {
 	return result
 }
 
+func (s *Server) securityCatalogToken(ctx context.Context, operationName OperationName, req *http.Request) (context.Context, bool, error) {
+	var t CatalogToken
+	token, ok := findAuthorization(req.Header, "Bearer")
+	if !ok {
+		return ctx, false, nil
+	}
+	t.Token = token
+	t.Roles = operationRolesCatalogToken[operationName]
+	rctx, err := s.sec.HandleCatalogToken(ctx, operationName, t)
+	if errors.Is(err, ogenerrors.ErrSkipServerSecurity) {
+		return nil, false, nil
+	} else if err != nil {
+		return nil, false, err
+	}
+	return rctx, true, err
+}
+
 func (s *Server) securitySessionCookie(ctx context.Context, operationName OperationName, req *http.Request) (context.Context, bool, error) {
 	var t SessionCookie
 	const parameterName = "tesseract_session"
@@ -89,10 +133,20 @@ func (s *Server) securitySessionCookie(ctx context.Context, operationName Operat
 
 // SecuritySource is provider of security values (tokens, passwords, etc.).
 type SecuritySource interface {
+	// CatalogToken provides catalogToken security value.
+	CatalogToken(ctx context.Context, operationName OperationName) (CatalogToken, error)
 	// SessionCookie provides sessionCookie security value.
 	SessionCookie(ctx context.Context, operationName OperationName) (SessionCookie, error)
 }
 
+func (s *Client) securityCatalogToken(ctx context.Context, operationName OperationName, req *http.Request) error {
+	t, err := s.sec.CatalogToken(ctx, operationName)
+	if err != nil {
+		return errors.Wrap(err, "security source \"CatalogToken\"")
+	}
+	req.Header.Set("Authorization", "Bearer "+t.Token)
+	return nil
+}
 func (s *Client) securitySessionCookie(ctx context.Context, operationName OperationName, req *http.Request) error {
 	t, err := s.sec.SessionCookie(ctx, operationName)
 	if err != nil {

@@ -222,9 +222,8 @@ func (s *Server) handleExecuteQueryRequest(args [0]string, argsEscaped bool, w h
 
 // handleGetCatalogRequest handles getCatalog operation.
 //
-// Reserved incremental contract. Returns 501 until its implementation milestone; protected routes
-// return 401 when the session cookie is absent. No cookie is trusted and no data is read or written.
-// Request and success schemas will be introduced with that milestone.
+// Catalog-only metadata availability. Requires the configured operator bearer token until user
+// authentication is implemented.
 //
 // GET /api/v1/catalog
 func (s *Server) handleGetCatalogRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -302,15 +301,15 @@ func (s *Server) handleGetCatalogRequest(args [0]string, argsEscaped bool, w htt
 		type bitset = [1]uint8
 		var satisfied bitset
 		{
-			sctx, ok, err := s.securitySessionCookie(ctx, GetCatalogOperation, r)
+			sctx, ok, err := s.securityCatalogToken(ctx, GetCatalogOperation, r)
 			if err != nil {
 				err = &ogenerrors.SecurityError{
 					OperationContext: opErrContext,
-					Security:         "SessionCookie",
+					Security:         "CatalogToken",
 					Err:              err,
 				}
 				if encodeErr := encodeErrorResponse(s.h.NewError(ctx, err), w, span); encodeErr != nil {
-					defer recordError("Security:SessionCookie", err)
+					defer recordError("Security:CatalogToken", err)
 				}
 				return
 			}
@@ -347,7 +346,7 @@ func (s *Server) handleGetCatalogRequest(args [0]string, argsEscaped bool, w htt
 
 	var rawBody []byte
 
-	var response GetCatalogRes
+	var response *CatalogAvailability
 	if m := s.cfg.Middleware; m != nil {
 		mreq := middleware.Request{
 			Context:          ctx,
@@ -363,7 +362,7 @@ func (s *Server) handleGetCatalogRequest(args [0]string, argsEscaped bool, w htt
 		type (
 			Request  = struct{}
 			Params   = struct{}
-			Response = GetCatalogRes
+			Response = *CatalogAvailability
 		)
 		response, err = middleware.HookMiddleware[
 			Request,

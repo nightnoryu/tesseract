@@ -2,8 +2,7 @@ openapi: 3.0.3
 info:
   title: Tesseract API
   version: 0.1.0
-  description: Incremental API. Only health and readiness are implemented. Reserved
-    operations fail closed.
+  description: Incremental API with health, readiness and protected catalog availability. Reserved operations fail closed.
 security:
 - sessionCookie: []
 paths:
@@ -83,16 +82,17 @@ paths:
   /api/v1/catalog:
     get:
       operationId: getCatalog
-      description: Reserved incremental contract. Returns 501 until its implementation
-        milestone; protected routes return 401 when the session cookie is absent.
-        No cookie is trusted and no data is read or written. Request and success schemas
-        will be introduced with that milestone.
+      description: Catalog-only metadata availability. Requires the configured operator bearer token until user authentication is implemented.
+      security:
+      - catalogToken: []
       responses:
-        '501':
-          $ref: '#/components/responses/Error'
+        '200':
+          description: Availability for the published catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogAvailability'
         default:
-          $ref: '#/components/responses/Error'
-        '401':
           $ref: '#/components/responses/Error'
   /api/v1/dashboards:
     get:
@@ -159,11 +159,76 @@ paths:
           $ref: '#/components/responses/Error'
 components:
   securitySchemes:
+    catalogToken:
+      type: http
+      scheme: bearer
     sessionCookie:
       type: apiKey
       in: cookie
       name: tesseract_session
   schemas:
+    CatalogAvailability:
+      type: object
+      additionalProperties: false
+      required: [catalog_hash, sources]
+      properties:
+        catalog_hash:
+          type: string
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourceAvailability'
+    SourceAvailability:
+      type: object
+      additionalProperties: false
+      required: [source_id, configured, available, unavailable, stale, tables]
+      properties:
+        source_id:
+          type: string
+        configured:
+          type: integer
+          minimum: 0
+        available:
+          type: integer
+          minimum: 0
+        unavailable:
+          type: integer
+          minimum: 0
+        stale:
+          type: integer
+          minimum: 0
+        last_scan:
+          type: string
+          format: date-time
+        last_successful_scan:
+          type: string
+          format: date-time
+        tables:
+          type: array
+          items:
+            $ref: '#/components/schemas/TableAvailability'
+    TableAvailability:
+      type: object
+      additionalProperties: false
+      required: [dataset_id, schema, table, status, stale]
+      properties:
+        dataset_id:
+          type: string
+        schema:
+          type: string
+        table:
+          type: string
+        status:
+          type: string
+          enum: [available, unavailable]
+        stale:
+          type: boolean
+        reason:
+          type: string
+          enum: [missing_table, missing_column, incompatible_type, access_denied, scan_failed, not_scanned, stale]
+        inspected_at:
+          type: string
+          format: date-time
     Health:
       type: object
       additionalProperties: false

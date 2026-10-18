@@ -5,10 +5,6 @@ type ExecuteQueryRes interface {
 	executeQueryRes()
 }
 
-type GetCatalogRes interface {
-	getCatalogRes()
-}
-
 type GetReadinessRes interface {
 	getReadinessRes()
 }

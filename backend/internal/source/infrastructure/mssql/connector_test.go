@@ -3,6 +3,7 @@ package mssql
 import (
 	"context"
 	"errors"
+	driver "github.com/microsoft/go-mssqldb"
 	semantic "github.com/nightnoryu/tesseract/internal/semantic/domain"
 	"github.com/nightnoryu/tesseract/internal/source/domain"
 	"testing"
@@ -31,5 +32,26 @@ func TestLimitsAndCancellation(t *testing.T) {
 	cancel()
 	if !errors.Is(c.acquire(ctx), context.Canceled) {
 		t.Fatal("queue ignored cancellation")
+	}
+}
+
+func TestSafePermissionErrors(t *testing.T) {
+	for _, tc := range []struct {
+		cause error
+		want  error
+	}{
+		{driver.Error{Number: 229, Message: "private table"}, domain.ErrAccessDenied},
+		{driver.Error{Number: 18456, Message: "private username"}, domain.ErrAccessDenied},
+		{driver.Error{Number: 208, Message: "private object"}, domain.ErrUnavailable},
+		{errors.New("private connection string"), domain.ErrUnavailable},
+	} {
+		if got := safeError(context.Background(), tc.cause); got != tc.want {
+			t.Fatalf("unexpected safe error: %v", got)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if safeError(ctx, driver.Error{Number: 229}) != context.Canceled {
+		t.Fatal("cancellation lost")
 	}
 }
