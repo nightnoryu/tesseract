@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	auth "github.com/nightnoryu/tesseract/internal/auth/app"
 	"github.com/nightnoryu/tesseract/internal/auth/domain"
+	oidc "github.com/nightnoryu/tesseract/internal/auth/infrastructure/oidc"
 	"github.com/nightnoryu/tesseract/internal/generated/api"
 	"net"
 	"net/http"
@@ -16,6 +17,8 @@ import (
 
 type AuthConfig struct {
 	Service             *auth.Service
+	OIDC                *oidc.Provider
+	OIDCStore           auth.OIDCStore
 	Origin              string
 	InsecureDevelopment bool
 }

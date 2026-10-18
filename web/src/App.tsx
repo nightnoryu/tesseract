@@ -17,6 +17,15 @@ const timestamp = (value?: string) => value ? new Date(value).toLocaleString() :
 export default function App() {
   const [session, setSession] = useState<components["schemas"]["Session"]>();
   const [checking, setChecking] = useState(true);
+  const [sso, setSSO] = useState(false);
+  useEffect(() => { api.GET("/api/v1/auth/options").then(({data}) => setSSO(data?.oidc ?? false)).catch(() => setError("Sign-in options could not be loaded."));
+    if (new URLSearchParams(window.location.search).has("sso_error")) {setError("Organization sign-in failed. Try again or contact your administrator."); window.history.replaceState(null, "", window.location.pathname);}
+  }, []);
+  async function loginSSO() {
+    setLoading(true); setError("");
+    try { const {data} = await api.POST("/api/v1/auth/oidc/start"); if (data) {window.location.assign(data.authorization_url); return;} setError("Organization sign-in is unavailable. Try again later."); } catch {setError("Cannot reach the service.");}
+    setLoading(false);
+  }
   const [changing, setChanging] = useState(false);
   useEffect(() => { api.GET("/api/v1/auth/session").then(({data}) => setSession(data)).catch(() => setError("Cannot reach the service.")).finally(() => setChecking(false)); }, []);
   async function login(event: React.SubmitEvent<HTMLFormElement>) {
@@ -62,6 +71,7 @@ export default function App() {
         {checking ? <p className="mt-6">Checking session…</p> : !session ? <>
           <h1 className="mt-6 text-3xl font-semibold">Sign in</h1>
           <p className="mt-3 text-slate-300">Use the account provided by your administrator. Contact them if you need access or a password reset.</p>
+          {sso && <button disabled={loading} onClick={loginSSO} className="mt-6 rounded border border-cyan-400 px-4 py-2 disabled:opacity-50">Sign in with your organization</button>}
           <form onSubmit={login} className="my-8 grid gap-4 max-w-sm">
             <label>Email<input name="email" type="email" required autoComplete="username" maxLength={254} className="block w-full rounded bg-slate-800 p-2" /></label>
             <label>Password<input name="password" type="password" required autoComplete="current-password" maxLength={1024} className="block w-full rounded bg-slate-800 p-2" /></label>
