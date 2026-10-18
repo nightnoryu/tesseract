@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import Dashboards from "./dashboard/Dashboards";
 import { api } from "./api/client";
 import type { components } from "./api/schema";
 
@@ -15,6 +16,7 @@ const reasons = {
 const timestamp = (value?: string) => value ? new Date(value).toLocaleString() : "Never";
 
 export default function App() {
+  const [page, setPage] = useState<"dashboards" | "catalog">("dashboards");
   const [session, setSession] = useState<components["schemas"]["Session"]>();
   const [checking, setChecking] = useState(true);
   const [sso, setSSO] = useState(false);
@@ -53,6 +55,7 @@ export default function App() {
   const [catalog, setCatalog] = useState<Catalog>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const sessionExpired = useCallback(() => {setSession(undefined); setCatalog(undefined); setChanging(false); setError("Your session expired. Sign in again.");}, []);
   async function load(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true); setError(""); setCatalog(undefined);
@@ -66,7 +69,7 @@ export default function App() {
   }
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-12 text-slate-100">
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto max-w-7xl">
         <p className="text-sm font-semibold uppercase tracking-widest text-cyan-400">Tesseract</p>
         {checking ? <p className="mt-6">Checking session…</p> : !session ? <>
           <h1 className="mt-6 text-3xl font-semibold">Sign in</h1>
@@ -84,13 +87,15 @@ export default function App() {
             <label>New password (at least 12 characters)<input name="next" type="password" minLength={12} maxLength={1024} required autoComplete="new-password" className="block w-full rounded bg-slate-800 p-2" /></label>
             <button disabled={loading}>Change password and sign out everywhere</button>
           </form>}
+          <nav aria-label="Main navigation" className="mt-6 flex gap-5 border-b border-slate-700 pb-3"><button aria-current={page === "dashboards" ? "page" : undefined} onClick={() => setPage("dashboards")}>Dashboards</button><button aria-current={page === "catalog" ? "page" : undefined} onClick={() => setPage("catalog")}>Catalog availability</button></nav>
+          {page === "dashboards" ? <Dashboards key={session.email} onSessionExpired={sessionExpired} /> : <>
           <h1 className="mt-6 text-3xl font-semibold">Catalog availability</h1>
           <p className="mt-3 text-slate-300">See which approved warehouse tables are ready for analysis.</p>
-          <form onSubmit={load} className="my-8"><button disabled={loading} className="rounded bg-cyan-400 px-4 py-2 font-medium text-slate-950 disabled:opacity-50">{loading ? "Loading…" : "Load / refresh"}</button></form>
+          <form onSubmit={load} className="my-8"><button disabled={loading} className="rounded bg-cyan-400 px-4 py-2 font-medium text-slate-950 disabled:opacity-50">{loading ? "Loading…" : "Load / refresh"}</button></form></>}
         </>}
         {error && <p role="alert" className="mb-6 text-amber-300">{error}</p>}
         <div aria-live="polite" aria-busy={loading}>
-          {catalog?.sources.map(source => (
+          {session && page === "catalog" && catalog?.sources.map(source => (
             <section key={source.source_id} className="mb-6 rounded-xl border border-slate-700 p-5">
               <h2 className="text-xl font-semibold">{source.source_id}</h2>
               <p className="mt-3 text-lg">{source.configured} configured / {source.available} available / {source.unavailable} unavailable</p>

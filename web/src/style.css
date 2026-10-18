@@ -1,1 +1,12 @@
 @import "tailwindcss";
+
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: .5; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid #22d3ee; outline-offset: 3px; }
+button[aria-current] { color: #67e8f9; }
+.dashboard-workspace button { border: 1px solid #475569; border-radius: .375rem; padding: .4rem .7rem; }
+.dashboard-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-auto-rows: minmax(100px, auto); gap: 1rem; }
+.dashboard-widget { min-width: 0; }
+@media (max-width: 767px) {
+  .dashboard-grid { display: flex; flex-direction: column; }
+}
