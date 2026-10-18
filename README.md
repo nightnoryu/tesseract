@@ -32,8 +32,7 @@ mise run dev:down    # keeps database volumes
 
 SQL Server Developer edition requires an amd64 Docker runtime and at least 2 GB
 of memory. Its SA password in `.env` is for local administration. Configure
-`TESSERACT_DWH_CRM_DSN` with a separate read-only account when DWH connectivity is
-implemented. PostgreSQL is exposed on localhost:5433 and SQL Server on
+`TESSERACT_DWH_CRM_DSN` with a separate read-only account. PostgreSQL is exposed on localhost:5433 and SQL Server on
 localhost:1433; all credentials and port overrides are in `.env.example`.
 Changing database credentials after initialization requires updating the database
 account too; editing `.env` alone does not change persisted passwords.
@@ -107,9 +106,8 @@ mise run check         # types, Go tests, formatting, vet, generation
 ```
 
 CI runs the consistency check and builds/checks. Comparison includes extra and
-missing generated files and works before files are committed. The React preview
-requests `/healthz` through the typed client and shows the service connection
-state. Vite proxies `/api`, `/healthz`, and `/readyz` to port 8080; production
+missing generated files and works before files are committed. The React app
+requests `/api/v1/catalog` through the typed client and shows catalog availability. Vite proxies `/api`, `/healthz`, and `/readyz` to port 8080; production
 hosting must route these paths to Go on the same origin.
 
 Health and readiness use generated handlers. `/metrics` remains a Prometheus
@@ -117,7 +115,7 @@ endpoint outside the JSON contract. Errors use
 `{"error":{"code":"not_implemented","message":"..."},"request_id":"..."}`,
 with the same server-generated ID in `X-Request-ID`.
 
-Auth, catalog, dashboard, query, sharing, and chat routes are reserved contracts;
+Auth, dashboard, query, sharing, and chat routes are reserved contracts;
 they return 501 without accessing data. Protected routes return 401 without a
 session cookie and reject every supplied cookie with 501 until authentication
 is implemented. Request bodies and success schemas will be added in their
@@ -213,3 +211,24 @@ Snapshots retain history. Consumers must match the current catalog hash and
 apply a freshness policy (availability API follows in milestone 7). A cancelled
 worker or PostgreSQL outage cannot publish a new snapshot; the previous scan's
 timestamp remains unchanged.
+
+### Catalog availability
+
+Set `TESSERACT_CATALOG_TOKEN` in `.env` to a random operator secret (generate with `openssl rand -hex 32`), restart the API, run `mise run ingest:once`, and open the web app. Enter the token to load or refresh source counts and table statuses. This temporary operator access precedes user login in milestone 9. Empty configuration disables catalog access. Use HTTPS outside localhost; do not put the token in URLs or frontend environment variables.
+
+`GET /api/v1/catalog` requires `Authorization: Bearer <operator token>` and returns the current catalog hash, per-source configured/available/unavailable/stale counts, latest and last successful scan times, and approved table statuses. No DWH connection is made by this endpoint. `TESSERACT_CATALOG_DIR` defaults to `../catalog` when running from `backend`. `TESSERACT_METADATA_MAX_AGE` defaults to `15m` and must be positive and at most `24h`; keep the ingestion interval below it.
+
+Expired compatible inspections become unavailable with reason `stale`. Existing failure reasons remain visible even when stale. `not_scanned` means no matching current-catalog inspection exists, including after a catalog change. Failed scans never fall back to an older successful snapshot. `missing_table` can also mean SQL Server hid the object from the inspection account; explicit permission errors use `access_denied`.
+
+Milestone 7 verification:
+
+```sh
+cd backend
+GOCACHE=/tmp/tesseract-go-cache mise exec -- go test -tags=integration ./... -count=1
+GOCACHE=/tmp/tesseract-go-cache mise exec -- go vet ./...
+cd ..
+mise exec -- pnpm --dir web run build
+mise exec -- bash scripts/check-api.sh
+```
+
+The integration suite requires Docker and runs real PostgreSQL and SQL Server containers, including ingestion through the authenticated availability API, missing tables/columns, type drift, DWH downtime, catalog hash invalidation, and unlisted-object exclusion.

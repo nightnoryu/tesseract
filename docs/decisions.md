@@ -116,3 +116,13 @@ datetime/datetime2/smalldatetime. Approximate numbers, timezone-bearing values,
 legacy text, binary and unknown types fail closed. All catalog columns,
 including hidden measure inputs, are required. Persist only approved metadata,
 fixed reason codes, and scan timestamps; never connector error text or rows.
+
+## Catalog availability (milestone 7)
+
+Availability reads only the published catalog's source IDs and exact catalog hash, then projects stored tables onto its dataset/schema/table allowlist. A failed latest scan replaces availability immediately; last successful scan is historical context for the same catalog version, never a fallback. A compatible inspection expires after `TESSERACT_METADATA_MAX_AGE` (default 15 minutes, maximum 24 hours). Stale tables count as unavailable; stale is also a separate count, and an existing incompatibility reason is preserved. Distinct physical table counts follow the catalog validator's prohibition on duplicate physical tables.
+
+Until account authentication and entitlements arrive in milestones 9–11, the catalog endpoint has an explicit operator-only bearer credential, configured with `TESSERACT_CATALOG_TOKEN` (minimum 32 bytes). Empty disables access; a session cookie cannot bypass it. Use a randomly generated token and HTTPS outside localhost. The UI retains the token only in its password input, never browser storage or URLs; responses use `Cache-Control: no-store`. This grants catalog-wide operator visibility, not analytical query access or user sessions. Replace this gate with session authentication and entitlements in those milestones.
+
+SQL Server may hide absent and inaccessible objects identically in system metadata; those cases report `missing_table` (the UI explains both possibilities). Explicit permission/login errors report `access_denied`; other connection/inspection failures report `scan_failed`. Raw driver errors and connection details are never included in availability responses.
+
+Schema inspection also executes `SELECT TOP (0)` over approved columns once all are confirmed present. It returns no business rows and verifies effective table/column read permissions, since schema visibility alone does not imply analytical access.

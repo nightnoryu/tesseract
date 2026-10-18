@@ -94,7 +94,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Reserved incremental contract. Returns 501 until its implementation milestone; protected routes return 401 when the session cookie is absent. No cookie is trusted and no data is read or written. Request and success schemas will be introduced with that milestone. */
+        /** @description Catalog-only metadata availability. Requires the configured operator bearer token until user authentication is implemented. */
         get: operations["getCatalog"];
         put?: never;
         post?: never;
@@ -176,6 +176,34 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        CatalogAvailability: {
+            catalog_hash: string;
+            sources: components["schemas"]["SourceAvailability"][];
+        };
+        SourceAvailability: {
+            source_id: string;
+            configured: number;
+            available: number;
+            unavailable: number;
+            stale: number;
+            /** Format: date-time */
+            last_scan?: string;
+            /** Format: date-time */
+            last_successful_scan?: string;
+            tables: components["schemas"]["TableAvailability"][];
+        };
+        TableAvailability: {
+            dataset_id: string;
+            schema: string;
+            table: string;
+            /** @enum {string} */
+            status: "available" | "unavailable";
+            stale: boolean;
+            /** @enum {string} */
+            reason?: "missing_table" | "missing_column" | "incompatible_type" | "access_denied" | "scan_failed" | "not_scanned" | "stale";
+            /** Format: date-time */
+            inspected_at?: string;
+        };
         Health: {
             /** @enum {string} */
             status: "ok";
@@ -315,8 +343,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            401: components["responses"]["Error"];
-            501: components["responses"]["Error"];
+            /** @description Availability for the published catalog */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogAvailability"];
+                };
+            };
             default: components["responses"]["Error"];
         };
     };
