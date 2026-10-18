@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	source "github.com/nightnoryu/tesseract/internal/source/domain"
 	"net/http"
 	"time"
 
@@ -56,6 +57,14 @@ func (h *contract) NewError(ctx context.Context, err error) *api.ErrorStatusCode
 		status, code, message = 429, "rate_limited", "Too many attempts. Try again later."
 	} else if errors.Is(err, domain.ErrPassword) {
 		status, code, message = 400, "invalid_password", "Use a password of at least 12 characters and at most 1024 bytes."
+	} else if errors.Is(err, source.ErrAccessDenied) {
+		status, code, message = 403, "access_denied", "Data access is not permitted."
+	} else if errors.Is(err, source.ErrInvalidQuery) || errors.Is(err, source.ErrLimit) {
+		status, code, message = 400, "invalid_query", "The query is invalid."
+	} else if errors.Is(err, source.ErrSchemaUnavailable) || errors.Is(err, source.ErrUnavailable) || errors.Is(err, source.ErrReadOnly) {
+		status, code, message = 503, "data_unavailable", "The data source is unavailable or unverified."
+	} else if errors.Is(err, context.DeadlineExceeded) {
+		status, code, message = 504, "query_timeout", "The query timed out."
 	} else if errors.Is(err, ogenhttp.ErrNotImplemented) {
 		status, code, message = 501, "not_implemented", "This feature is not available yet."
 	}

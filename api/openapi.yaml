@@ -198,7 +198,7 @@ paths:
   /api/v1/queries:
     post:
       operationId: executeQuery
-      description: Typed direct-DWH aggregate query contract. HTTP execution remains unimplemented pending data entitlements; local operators can use cmd/query with explicit grants.
+      description: Executes a typed aggregate query under the authenticated viewer data entitlements and mandatory row scope. Dashboard permissions never grant data access.
       requestBody:
         required: true
         content:

@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
+	access "github.com/nightnoryu/tesseract/internal/access/app"
 	auth "github.com/nightnoryu/tesseract/internal/auth/app"
 	authdomain "github.com/nightnoryu/tesseract/internal/auth/domain"
 	metadata "github.com/nightnoryu/tesseract/internal/metadata/app"
@@ -27,6 +29,11 @@ func TestCatalogAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	hash, _ := cat.Hash()
+	policy, err := access.Load(strings.NewReader(fmt.Sprintf(`{"version":1,"catalog_hash":%q,"grants":[{"user_id":"00000000-0000-0000-0000-000000000001","source":"crm_dwh","dataset":"leads","fields":["lead_count"],"unrestricted_rows":true}]}`, hash)), cat)
+	if err != nil {
+		t.Fatal(err)
+	}
 	token := strings.Repeat("a", 52)
 	store := &authStore{account: authdomain.Account{ID: "00000000-0000-0000-0000-000000000001", Email: "reader@example.com"}, tokens: map[string]time.Time{auth.Digest(token): time.Now().Add(time.Hour)}}
 	service := auth.New(store)
@@ -38,7 +45,7 @@ func TestCatalogAuthentication(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			reader := &catalogReader{}
-			server := New(func(context.Context) error { return nil }, &capture{}, telemetry.New(), CatalogConfig{Auth: &AuthConfig{Service: service, Origin: "https://app.example.com"}, Availability: metadata.Availability{Catalog: cat, Store: reader, MaxAge: time.Minute}})
+			server := New(func(context.Context) error { return nil }, &capture{}, telemetry.New(), CatalogConfig{Policy: policy, Auth: &AuthConfig{Service: service, Origin: "https://app.example.com"}, Availability: metadata.Availability{Catalog: cat, Store: reader, MaxAge: time.Minute}})
 			req := httptest.NewRequest("GET", "/api/v1/catalog", nil)
 			if tc.supplied != "" {
 				req.AddCookie(&http.Cookie{Name: "tesseract_session", Value: tc.supplied})
