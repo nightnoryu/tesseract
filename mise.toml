@@ -12,30 +12,48 @@ depends = ["backend:build", "web:build"]
 
 [tasks."backend:build"]
 dir = "backend"
-depends = ["api:generate"]
+depends = ["api:generate:backend"]
+sources = ["go.mod", "go.sum", "**/*.go", "internal/platform/postgres/migrations/*.sql"]
+outputs = ["bin/tesseract"]
 run = "go build -trimpath -o bin/tesseract ./cmd/tesseract"
 
 [tasks."web:modules"]
 dir = "web"
-run = "pnpm install --frozen-lockfile"
+sources = ["package.json", "pnpm-lock.yaml"]
+outputs = ["node_modules/.modules.yaml", "node_modules/.pnpm/lock.yaml"]
+# pnpm leaves these timestamps unchanged when dependencies are already installed.
+run = ["pnpm install --frozen-lockfile", "touch -c node_modules/.modules.yaml node_modules/.pnpm/lock.yaml"]
 
 [tasks."web:build"]
 dir = "web"
-depends = ["api:generate"]
-run = "pnpm run build"
+depends = ["web:typecheck"]
+sources = ["src/**/*", "public/**/*", "index.html", "vite.config.ts", "package.json", "pnpm-lock.yaml"]
+outputs = ["dist/index.html", "dist/assets/*"]
+run = "pnpm exec vite build"
+
+[tasks."web:typecheck"]
+dir = "web"
+depends = ["api:generate:web"]
+sources = ["src/**/*.{ts,tsx}", "tsconfig.json", "vite.config.ts", "package.json", "pnpm-lock.yaml"]
+outputs = { auto = true }
+run = "pnpm run check"
 
 [tasks.check]
 depends = ["backend:check", "web:check", "compose:check", "api:check"]
 
 [tasks."backend:check"]
 dir = "backend"
-depends = ["api:generate"]
+depends = ["api:generate:backend"]
+sources = ["go.mod", "go.sum", "**/*.go", "internal/platform/postgres/migrations/*.sql", "../catalog/**/*.toml"]
+outputs = { auto = true }
 run = ["test -z \"$(gofmt -l .)\"", "go vet ./...", "go test ./..."]
 
 [tasks."web:check"]
 dir = "web"
-depends = ["api:generate"]
-run = ["pnpm run check", "pnpm test"]
+depends = ["web:typecheck"]
+sources = ["src/**/*", "vitest.config.ts", "vite.config.ts", "tsconfig.json", "package.json", "pnpm-lock.yaml"]
+outputs = { auto = true }
+run = "pnpm test"
 
 [tasks."compose:check"]
 run = "docker compose --env-file .env.example --profile mssql config --quiet"
@@ -45,13 +63,13 @@ depends = ["backend:dev", "web:dev"]
 
 [tasks."backend:dev"]
 dir = "backend"
-depends = ["api:generate", "dev:up"]
+depends = ["api:generate:backend", "dev:up"]
 env._.file = "../.env"
 run = "go run ./cmd/tesseract"
 
 [tasks."web:dev"]
 dir = "web"
-depends = ["api:generate", "dev:up"]
+depends = ["api:generate:web", "dev:up"]
 run = "pnpm run dev"
 
 [tasks."dev:up"]
@@ -71,19 +89,33 @@ run = "docker compose --profile mssql logs -f"
 
 [tasks."backend:integration"]
 dir = "backend"
-depends = ["api:generate"]
+depends = ["api:generate:backend"]
 run = "go test -tags=integration ./... -count=1"
 
 [tasks."api:generate"]
+depends = ["api:generate:backend", "api:generate:web"]
+
+[tasks."api:generate:backend"]
+sources = ["api/openapi.yaml", "scripts/generate-api.sh", "backend/go.mod", "backend/go.sum"]
+outputs = ["backend/internal/generated/api/*_gen.go"]
+run = "bash scripts/generate-api.sh . backend"
+
+[tasks."api:generate:web"]
 depends = ["web:modules"]
-run = "bash scripts/generate-api.sh"
+sources = ["api/openapi.yaml", "scripts/generate-api.sh", "web/package.json", "web/pnpm-lock.yaml"]
+outputs = ["web/src/api/schema.d.ts"]
+run = "bash scripts/generate-api.sh . web"
 
 [tasks."api:check"]
 depends = ["api:generate"]
+sources = ["api/openapi.yaml", "scripts/*api.sh", "backend/internal/generated/api/*.go", "backend/go.mod", "backend/go.sum", "web/src/api/schema.d.ts", "web/package.json", "web/pnpm-lock.yaml"]
+outputs = { auto = true }
 run = "bash scripts/check-api.sh"
 
 [tasks."catalog:validate"]
 dir = "backend"
+sources = ["go.mod", "go.sum", "cmd/catalog/**/*.go", "internal/semantic/**/*.go", "../catalog/**/*.toml"]
+outputs = { auto = true }
 run = "go run ./cmd/catalog validate -dir ../catalog"
 
 [tasks."dwh:probe"]
