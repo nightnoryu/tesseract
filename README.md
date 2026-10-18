@@ -475,5 +475,38 @@ Charts include an exact-value table; NULL is displayed as `—`. The catalog tab
 shows metadata availability and remediation guidance. Results never enter browser
 persistent storage or application PostgreSQL.
 
-Use `mise exec -- pnpm --dir web test` for dashboard component tests. The initial
-editor is a specification editor; chat authoring and sharing are later milestones.
+Use `mise exec -- pnpm --dir web test` for dashboard component tests. The initial editor is a specification editor. Chat authoring is available when an
+LLM endpoint is configured; sharing remains a later milestone.
+
+### Chat dashboard creation
+
+Set `TESSERACT_LLM_ENDPOINT` to the full OpenAI-compatible chat completions URL
+(for example `https://llm.example/v1/chat/completions`), `TESSERACT_LLM_MODEL` to
+the served model, and `TESSERACT_LLM_TOKEN` to its authorization token. The backend
+sends `Authorization: Bearer <token>`. The model must support function tools.
+Chat is disabled when these settings are empty. Set
+`TESSERACT_LLM_INSECURE_SKIP_VERIFY=true` to skip certificate and hostname
+verification for this LLM connection only; the default is `false`. Redirects are
+never followed, and upstream errors and credentials are not exposed to clients.
+
+Sign in, open Dashboards, and describe the charts under **Create with chat**.
+The assistant searches the current authorized, schema-compatible semantic catalog,
+asks clarifying questions when needed, and creates a validated draft. Existing
+chart components fetch live results using the signed-in user's permissions.
+The tools accept semantic QuerySpec objects and a typed `create_dashboard`
+operation; SQL, arbitrary formulas, joins and unknown fields are rejected.
+Semantic ambiguity is handled through the assistant’s clarification instructions;
+backend validation guarantees catalog and query validity, not interpretation of
+natural-language intent. Preview tools execute at most ten result rows and return
+only success status to the model. No warehouse rows, physical schema or service credentials are sent.
+User-entered chat text is sent to the configured provider.
+
+Each request permits six model turns, twelve tool calls, 20 seconds per provider
+request, ten seconds per tool, and 90 seconds overall. Model responses and tool
+results are size bounded. Eight chat requests may run concurrently. Sessions are
+private to a user, held in server memory (maximum 1000), limited to 20 messages,
+and expire after one idle hour or server restart. A successful creation closes
+that conversation; use **New conversation** to create another draft. Iterative
+editing and durable draft-linked chat history belong to milestone 15. On a lost
+connection, check the dashboard list before retrying. LLM count, duration and
+error metrics use fixed `openai_compatible` / `configured` labels on `/metrics`.
