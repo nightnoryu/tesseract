@@ -275,3 +275,27 @@ the committed draft with unavailable widget states, avoiding misleading retry
 signals. The synchronous HTTP flow uses the existing turn/tool/time budgets.
 The model sees the current spec plus the latest 18 messages; persisted older
 messages are available to the user through pagination.
+
+
+## Milestone 16: authenticated published-dashboard sharing
+
+The existing dashboard owner is the owner ACL; a separate cascading table stores
+explicit viewer grants to local user UUIDs. Owners resolve an exact existing,
+enabled account by email when granting access. Sharing does not create accounts,
+link identities, or confer data entitlements. A stable query-string URL carries
+only the dashboard ID. Password login preserves that URL; SSO temporarily retains
+only the validated dashboard ID in tab-scoped session storage across its callback.
+
+Owner-only store reads remain the boundary for edits, private chat, and history.
+Separate authorized reads select the current draft for owners and the published
+revision for viewers in one SQL statement. Unpublished dashboards stay inaccessible
+to viewers, even with a grant. Missing or ungranted link reads return a generic 403
+without content; owner-only mutation/history routes retain their existing 404.
+
+Saved-widget requests resolve ACL and the current accessible revision before
+executing the stored query with the caller’s data policy. They accept transient
+values for existing filters, never a replacement QuerySpec or mapping. The client
+sends the displayed revision, and stale requests return 409 so newly published data
+cannot appear under an older title/chart definition. Existing direct-query access
+remains independently restricted by the same caller data policy. Revocation denies
+subsequent requests; it does not recall completed or already authorized requests.

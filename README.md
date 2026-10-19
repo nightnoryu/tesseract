@@ -541,3 +541,27 @@ controls, not model tools. If an edit returns 409, reload the dashboard before
 retrying; your pending request is retained. On a lost connection, reload to check
 whether changes committed before retrying. Deleting a dashboard deletes its chat.
 No analytical query results are stored in chat history.
+
+## Sharing published dashboards
+
+Open a saved dashboard, publish it, then choose **Share**. Enter a colleague’s
+existing local account email to grant viewer access; the owner can list and revoke
+those grants in the same panel. **Copy link** copies `/?dashboard=<dashboard UUID>`.
+Recipients sign in using password or configured SSO and return to that dashboard.
+The UUID identifies the dashboard and grants no access by itself.
+
+Viewers see the latest published revision. Drafts, chat, revision history and
+editing controls remain private to the owner. The shared dashboard also appears
+in the recipient’s saved-dashboard list after publication. A granted account still
+needs operator-configured data entitlements; denied widgets show an explicit error.
+Each widget runs under the current session’s fields and row restrictions. Revocation
+blocks subsequent dashboard reads and widget queries; already displayed results or
+requests authorized before revocation cannot be recalled. Republishing causes stale
+widget requests to ask for **Reload data** before showing results.
+
+The generated API exposes owner-only `GET/POST /api/v1/dashboards/{id}/shares`
+(grant body: `{"email":"colleague@example.com"}`),
+`DELETE /api/v1/dashboards/{id}/shares/{userId}`, and authenticated
+`POST /api/v1/dashboards/{id}/widgets/{widgetId}/query?expectedRevision=<revision>`
+(body: the dashboard’s transient filter array). Migration 008 stores viewer grants
+against stable local user UUIDs. No anonymous links or editor grants are supported.
