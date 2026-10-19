@@ -11,6 +11,11 @@ import (
 )
 
 type Store interface {
+	Read(context.Context, string, string) (domain.Dashboard, error)
+	Shares(context.Context, string, string) ([]domain.Share, error)
+	Grant(context.Context, string, string, string) error
+	Revoke(context.Context, string, string, string) error
+
 	Create(context.Context, string, domain.Spec) (domain.Dashboard, error)
 	Get(context.Context, string, string) (domain.Dashboard, error)
 	List(context.Context, string, int, int) ([]domain.Dashboard, error)
@@ -99,6 +104,12 @@ func (s Service) Get(ctx context.Context, user, id string) (domain.Dashboard, er
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	d, err := s.Store.Get(ctx, user, id)
+	return s.decorate(ctx, user, d, err)
+}
+func (s Service) Read(ctx context.Context, user, id string) (domain.Dashboard, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	d, err := s.Store.Read(ctx, user, id)
 	return s.decorate(ctx, user, d, err)
 }
 func (s Service) Save(ctx context.Context, user, id string, expected int64, spec domain.Spec, publish bool) (domain.Dashboard, error) {

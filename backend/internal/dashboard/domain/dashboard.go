@@ -10,9 +10,11 @@ import (
 )
 
 var (
-	ErrInvalid  = errors.New("invalid_dashboard")
-	ErrNotFound = errors.New("dashboard_not_found")
-	ErrConflict = errors.New("dashboard_revision_conflict")
+	ErrDenied    = errors.New("dashboard_access_denied")
+	ErrRecipient = errors.New("share_recipient_unavailable")
+	ErrInvalid   = errors.New("invalid_dashboard")
+	ErrNotFound  = errors.New("dashboard_not_found")
+	ErrConflict  = errors.New("dashboard_revision_conflict")
 )
 
 const MaxSpecBytes = 60 << 10
@@ -50,7 +52,12 @@ type State struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
 }
+type Share struct {
+	UserID string `json:"user_id" db:"user_id"`
+	Email  string `json:"email" db:"email"`
+}
 type Dashboard struct {
+	Role              string    `json:"role"`
 	ID                string    `json:"id"`
 	Owner             string    `json:"owner"`
 	Revision          int64     `json:"revision"`

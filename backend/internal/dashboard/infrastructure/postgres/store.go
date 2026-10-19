@@ -25,7 +25,7 @@ type row struct {
 }
 
 func (r row) dashboard() (domain.Dashboard, error) {
-	d := domain.Dashboard{ID: r.ID, Owner: r.Owner, Revision: r.Revision, PublishedRevision: r.PublishedRevision, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
+	d := domain.Dashboard{Role: "owner", ID: r.ID, Owner: r.Owner, Revision: r.Revision, PublishedRevision: r.PublishedRevision, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
 	err := json.Unmarshal(r.Spec, &d.Spec)
 	return d, err
 }
@@ -45,7 +45,7 @@ func (s Store) Get(ctx context.Context, user, id string) (domain.Dashboard, erro
 }
 func (s Store) List(ctx context.Context, user string, limit, offset int) ([]domain.Dashboard, error) {
 	var rows []row
-	err := s.DB.SelectContext(ctx, &rows, selection+`WHERE d.owner=$1 ORDER BY d.updated_at DESC,d.id LIMIT $2 OFFSET $3`, user, limit, offset)
+	err := s.DB.SelectContext(ctx, &rows, `SELECT d.id,d.owner,r.revision,d.published_revision,d.created_at,r.created_at AS updated_at,r.spec FROM tesseract_app.dashboards d JOIN tesseract_app.dashboard_revisions r ON r.dashboard_id=d.id AND r.revision=CASE WHEN d.owner=$1 THEN d.revision ELSE d.published_revision END WHERE d.owner=$1 OR EXISTS(SELECT 1 FROM tesseract_app.dashboard_shares a WHERE a.dashboard_id=d.id AND a.user_id=$1) ORDER BY updated_at DESC,d.id LIMIT $2 OFFSET $3`, user, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -54,6 +54,9 @@ func (s Store) List(ctx context.Context, user string, limit, offset int) ([]doma
 		d, err := r.dashboard()
 		if err != nil {
 			return nil, err
+		}
+		if d.Owner != user {
+			d.Role = "viewer"
 		}
 		out = append(out, d)
 	}
