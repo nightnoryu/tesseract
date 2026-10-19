@@ -64,14 +64,13 @@ curl -i http://localhost:8080/healthz
 curl -i http://localhost:8080/readyz
 curl http://localhost:8080/metrics
 mise run backend:check
-mise run backend:integration  # requires Docker; isolated PostgreSQL container
+mise run backend:integration  # requires Docker; isolated PostgreSQL and SQL Server containers
 ```
 
 `/healthz` reports process liveness. `/readyz` performs a database ping with a
 one-second deadline and returns 503 on failure or shutdown. Its separate `dwh`
-field is `not_configured` until milestone 5. `/metrics` exposes basic Go/process,
-HTTP count/duration/in-flight, and LLM count/duration/error metrics. LLM series
-remain zero with fixed `unconfigured` labels until the provider is implemented.
+field remains `not_configured`; inspect catalog availability for DWH table health. `/metrics` exposes basic Go/process,
+HTTP count/duration/in-flight, and LLM count/duration/error metrics. LLM series use fixed provider/model labels and never include prompts or user identifiers.
 Keep operational endpoints on a trusted network when deploying.
 
 JSON logs include server-generated `request_id` (also returned as `X-Request-ID`),
@@ -214,7 +213,7 @@ to `scan_failed`, since the connector does not distinguish access denial from
 other connection failures. No business rows are queried or stored.
 
 Snapshots retain history. Consumers must match the current catalog hash and
-apply a freshness policy (availability API follows in milestone 7). A cancelled
+apply the configured freshness policy. A cancelled
 worker or PostgreSQL outage cannot publish a new snapshot; the previous scan's
 timestamp remains unchanged.
 
@@ -308,9 +307,9 @@ Non-GET API requests require an `Origin` matching the configured public origin,
 including login; scripted clients must send that header. Cookies and responses
 must not be cached by the proxy. The old catalog bearer token is no longer accepted.
 
-Signed-in accounts can see catalog metadata. Analytical HTTP execution remains
-unimplemented pending milestone 11's data entitlements; authentication alone does
-not grant DWH access. OIDC and dashboard access rules are later milestones.
+Catalog visibility and analytical queries require operator-configured data
+entitlements in addition to authentication. Dashboard ACLs grant access to saved
+specifications; they do not expand the recipient’s data entitlements.
 
 Authentication verification:
 
@@ -565,3 +564,70 @@ The generated API exposes owner-only `GET/POST /api/v1/dashboards/{id}/shares`
 `POST /api/v1/dashboards/{id}/widgets/{widgetId}/query?expectedRevision=<revision>`
 (body: the dashboard’s transient filter array). Migration 008 stores viewer grants
 against stable local user UUIDs. No anonymous links or editor grants are supported.
+
+
+## Release 1 verification
+
+From a clean checkout, install [mise](https://mise.jdx.dev/) and Docker Engine,
+then run `mise install` and `mise run release:check`. Docker must be reachable by
+the invoking user and able to pull the pinned PostgreSQL 18.3 and SQL Server 2022
+CU23 images. Use a Linux x86-64 Docker host with enough memory for SQL Server
+(at least 2 GB for each SQL Server container, plus PostgreSQL and build tools).
+Integration packages run sequentially to limit concurrent warehouse containers.
+Tests use random host ports, disposable databases and test-only credentials;
+they do not use `.env` or require a live LLM/organizational identity provider.
+
+`release:check` builds both applications, checks Go formatting and vet, TypeScript,
+Compose and reproducible OpenAPI generation, and runs unit/UI and Testcontainers
+suites. CI runs the same default checks and a separate Docker integration job.
+For just the complete backend journey, run `mise run backend:e2e`.
+
+`TestRelease1Flow` scans real DWH metadata into PostgreSQL, logs in by password,
+reads availability, creates and refines a dashboard through deterministic LLM
+tool calls, publishes and grants access, then signs in the recipient through a
+local signed-token OIDC provider. Recreated services reopen the saved dashboard;
+owner and recipient queries return different real SQL Server aggregates under
+their respective row policies. It also covers rejected access, revision conflict,
+stale metadata, DWH outage, session expiry and logout, and checks application
+storage for fixture business values and unlisted metadata. Focused suites cover
+missing/drifted tables, catalog hash changes, cancellation during a blocked DWH
+query, identity failures, migration restarts and concurrent revision writes.
+
+These are backend integration tests, not browser automation. The repository has
+no browser E2E runner; Vitest covers UI login/share navigation and dashboard
+behavior. For a manual browser demonstration, follow Local development, configure
+the DWH fixture and LLM, provision two accounts with data entitlements, and scan.
+Sign in, inspect availability, ask chat to create a dashboard, refine it, publish,
+grant the second account access and copy its URL. Open the URL in a separate
+browser profile, sign in as the recipient, and verify the published widgets.
+Chat edits save automatically; publishing makes that revision visible to viewers.
+
+## Deployment operations
+
+Use the DWH connector and TOML instructions above to configure the reviewed
+allowlist. Grant the SQL Server account only SELECT on listed objects; keep DWH
+credentials in a deployment secret store. Validate catalog changes with
+`mise run catalog:validate`, update the access policy for the new catalog hash,
+restart API and worker, then run `mise run ingest:once`. Until that hash is scanned,
+`not_scanned` and denied queries are expected. Run the worker more frequently than
+`TESSERACT_METADATA_MAX_AGE` (for example a 5-minute interval with a 15-minute max
+age). Inspect per-table reasons and scan timestamps when counts drop: repair DWH
+schema/permissions or connectivity, then scan again. Do not treat a successful
+worker exit as proof that every table is available.
+
+Back up PostgreSQL before upgrades and test restoring that backup. API and worker
+startup apply embedded migrations under the migration lock; deploy a version with
+compatible schema changes before scaling replicas. A migration failure prevents
+startup: inspect the safe startup error and database migration history, correct
+the cause and restart. Do not edit applied migrations or delete their history;
+there is no automatic down-migration command. Restore a tested backup with its
+matching application version when rollback requires reverting the schema.
+
+Serve the frontend and `/api` from the configured HTTPS origin, preserve Origin
+headers, disable proxy caching for API responses, and leave insecure development
+auth disabled. Configure PostgreSQL certificate verification and encrypted DWH
+connections. Keep `/metrics`, readiness and liveness endpoints on a trusted
+network; scrape `/metrics` with Prometheus. Provision password accounts and OIDC
+issuer/subject mappings using the account commands above, schedule account cleanup,
+and keep entitlement files writable only by operators. The API must have database
+migration privileges at startup; end users receive no database credentials.
