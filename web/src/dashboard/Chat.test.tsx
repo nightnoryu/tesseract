@@ -2,7 +2,7 @@ import {afterEach, expect, it, vi} from "vitest";
 import {cleanup, fireEvent, render, screen, waitFor} from "@testing-library/react";
 import {api} from "../api/client";
 import Chat from "./Chat";
-vi.mock("../api/client", () => ({api: {POST: vi.fn()}}));
+vi.mock("../api/client", () => ({api: {POST: vi.fn(), GET: vi.fn()}}));
 afterEach(() => {cleanup(); vi.resetAllMocks();});
 it("continues clarification history and opens the created draft", async () => {
   const created = vi.fn();
@@ -29,4 +29,26 @@ it("retains input on failure and handles session expiry", async () => {
   await screen.findByRole("alert");
   expect(expired).toHaveBeenCalledOnce();
   expect((screen.getByLabelText("Dashboard request") as HTMLTextAreaElement).value).toBe("Leads");
+});
+
+it("loads durable history, sends revision preconditions, and preserves input on conflict", async () => {
+ const dashboard = {id:"draft",revision:4} as import("./model").Dashboard;
+ const onCreated = vi.fn();
+ vi.mocked(api.GET).mockResolvedValue({data:[{revision:3,kind:"edit",entries:[{role:"assistant",content:"Saved previous edit"}],operations:[{type:"rename_dashboard",title:"Leads"}],created_at:""}],response:{status:200}} as never);
+ vi.mocked(api.POST).mockResolvedValueOnce({error:{error:{message:"Conflict"}},response:{status:409}} as never);
+ const view = render(<Chat dashboard={dashboard} onCreated={onCreated}/>);
+ await screen.findByText(/Saved previous edit/);
+ expect(screen.getByText("Saved operations (1)")).toBeTruthy();
+ fireEvent.change(screen.getByLabelText("Dashboard request"),{target:{value:"Add a chart"}});
+ fireEvent.click(screen.getByRole("button",{name:"Send"}));
+ await screen.findByRole("alert");
+ expect((vi.mocked(api.POST).mock.lastCall?.[1] as {body?: unknown} | undefined)?.body).toEqual({dashboard_id:"draft",expected_revision:4,message:"Add a chart"});
+ expect((screen.getByLabelText("Dashboard request") as HTMLTextAreaElement).value).toBe("Add a chart");
+ expect(onCreated).not.toHaveBeenCalled();
+ view.rerender(<Chat dashboard={{...dashboard,revision:5}} onCreated={onCreated}/>);
+ vi.mocked(api.POST).mockResolvedValueOnce({data:{session_id:"draft",history:[],dashboard:{...dashboard,revision:6}},response:{status:200}} as never);
+ fireEvent.click(screen.getByRole("button",{name:"Send"}));
+ await waitFor(()=>expect(onCreated).toHaveBeenCalledWith({...dashboard,revision:6}));
+ expect((vi.mocked(api.POST).mock.lastCall?.[1] as {body?: unknown} | undefined)?.body).toMatchObject({expected_revision:5});
+ expect((screen.getByLabelText("Dashboard request") as HTMLTextAreaElement).disabled).toBe(false);
 });

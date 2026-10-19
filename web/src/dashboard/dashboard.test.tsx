@@ -50,7 +50,7 @@ describe("live dashboard", () => {
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain(message));
   });
   it("opens saved specs, applies filters and preserves edits on revision conflict", async () => {
-    vi.mocked(api.GET).mockResolvedValueOnce(success([dashboard]) as never).mockResolvedValueOnce(success(dashboard) as never);
+    vi.mocked(api.GET).mockResolvedValueOnce(success([dashboard]) as never).mockResolvedValueOnce(success(dashboard) as never).mockResolvedValue(success([]) as never);
     vi.mocked(api.POST).mockResolvedValue(success({columns: ["lead_count"], rows: [[12]]}) as never);
     vi.mocked(api.PUT).mockResolvedValue({error: {error: {code: "revision_conflict"}}, response: {status: 409}} as never);
     render(<Dashboards />);
@@ -74,4 +74,29 @@ it("returns to sign-in when a widget session expires", async () => {
   vi.mocked(api.POST).mockResolvedValueOnce({response: {status: 401}, error: {error: {code: "unauthorized"}}} as never);
   render(<WidgetView widget={widget} filters={filters} status="ready" onSessionExpired={expired} />);
   await waitFor(() => expect(expired).toHaveBeenCalledOnce());
+});
+
+it("keeps a pending chat request on reload and uses current revisions for publish and discard", async () => {
+ let current = {...dashboard, spec: {...dashboard.spec, widgets: [], filters: []}, widget_states: []};
+ vi.mocked(api.GET).mockImplementation(async path => success(path === "/api/v1/dashboards" ? [current] : path === "/api/v1/dashboards/{dashboardId}" ? current : []) as never);
+ vi.mocked(api.POST).mockImplementation(async path => {
+   current = {...current, revision: current.revision + 1, published_revision: path === "/api/v1/dashboards/{dashboardId}/publish" ? current.revision + 1 : current.published_revision};
+   return success(current) as never;
+ });
+ render(<Dashboards />);
+ fireEvent.click(await screen.findByRole("button", {name: /Sales/}));
+ await screen.findByText("Refine with chat");
+ fireEvent.change(screen.getByLabelText("Dashboard request"), {target:{value:"Keep this request"}});
+ await waitFor(() => expect((screen.getByRole("button", {name:"Reload data"}) as HTMLButtonElement).disabled).toBe(false));
+ current = {...current, revision:4};
+ fireEvent.click(screen.getByRole("button", {name:"Reload data"}));
+ await screen.findByText(/Draft revision 4/);
+ expect((screen.getByLabelText("Dashboard request") as HTMLTextAreaElement).value).toBe("Keep this request");
+ fireEvent.click(screen.getByRole("button", {name:"Discard changes"}));
+ await screen.findByText(/Draft revision 5/);
+ expect(vi.mocked(api.POST).mock.calls[0][0]).toBe("/api/v1/dashboards/{dashboardId}/discard");
+ expect((vi.mocked(api.POST).mock.calls[0][1] as {body?: unknown} | undefined)?.body).toEqual({expected_revision:4});
+ fireEvent.click(screen.getByRole("button", {name:"Publish"}));
+ await screen.findByText(/Published revision 6/);
+ expect((vi.mocked(api.POST).mock.calls[1][1] as {body?: unknown} | undefined)?.body).toEqual({expected_revision:5});
 });
