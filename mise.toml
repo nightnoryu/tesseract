@@ -64,7 +64,7 @@ depends = ["backend:dev", "web:dev"]
 [tasks."backend:dev"]
 dir = "backend"
 depends = ["api:generate:backend", "dev:up"]
-env._.file = "../.env"
+env._.file = "{{config_root}}/.env"
 run = "go run ./cmd/tesseract"
 
 [tasks."web:dev"]
@@ -120,17 +120,17 @@ run = "go run ./cmd/catalog validate -dir ../catalog"
 
 [tasks."dwh:probe"]
 dir = "backend"
-env._.file = "../.env"
+env._.file = "{{config_root}}/.env"
 run = "go run ./cmd/dwh-probe -catalog ../catalog -source crm_dwh -dataset leads"
 
 [tasks."ingest:once"]
 dir = "backend"
-env._.file = "../.env"
+env._.file = "{{config_root}}/.env"
 run = "go run ./cmd/ingest -once"
 
 [tasks."ingest:worker"]
 dir = "backend"
-env._.file = "../.env"
+env._.file = "{{config_root}}/.env"
 run = "go run ./cmd/ingest"
 
 [tasks."backend:e2e"]
