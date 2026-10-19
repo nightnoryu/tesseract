@@ -20,11 +20,21 @@ export default function App() {
   const [session, setSession] = useState<components["schemas"]["Session"]>();
   const [checking, setChecking] = useState(true);
   const [sso, setSSO] = useState(false);
-  useEffect(() => { api.GET("/api/v1/auth/options").then(({data}) => setSSO(data?.oidc ?? false)).catch(() => setError("Sign-in options could not be loaded."));
-    if (new URLSearchParams(window.location.search).has("sso_error")) {setError("Organization sign-in failed. Try again or contact your administrator."); window.history.replaceState(null, "", window.location.pathname);}
+  useEffect(() => {
+    const target = sessionStorage.getItem("dashboard_return");
+    sessionStorage.removeItem("dashboard_return");
+    if (target && /^[0-9a-f-]{36}$/i.test(target)) {
+      const query = new URLSearchParams(window.location.search);
+      query.set("dashboard", target);
+      window.history.replaceState(null, "", `/?${query}`);
+    }
+    api.GET("/api/v1/auth/options").then(({data}) => setSSO(data?.oidc ?? false)).catch(() => setError("Sign-in options could not be loaded."));
+    if (new URLSearchParams(window.location.search).has("sso_error")) {setError("Organization sign-in failed. Try again or contact your administrator."); const query = new URLSearchParams(window.location.search); query.delete("sso_error"); window.history.replaceState(null, "", `/?${query}`);}
   }, []);
   async function loginSSO() {
     setLoading(true); setError("");
+    const target = new URLSearchParams(window.location.search).get("dashboard");
+    if (target && /^[0-9a-f-]{36}$/i.test(target)) sessionStorage.setItem("dashboard_return", target);
     try { const {data} = await api.POST("/api/v1/auth/oidc/start"); if (data) {window.location.assign(data.authorization_url); return;} setError("Organization sign-in is unavailable. Try again later."); } catch {setError("Cannot reach the service.");}
     setLoading(false);
   }

@@ -12,6 +12,7 @@ export function widgetQuery(widget: Widget, filters: Spec["filters"]) {
 }
 export function failure(status: number, code?: string): string {
   if (status === 401) return "Your session expired. Sign in again.";
+  if (code === "dashboard_access_denied") return "You do not have access to this dashboard. Ask its owner for a viewer grant.";
   if (status === 403) return "Denied: you do not have permission to query this data.";
   if (status === 409) return "This dashboard changed. Reload before saving; copy your edits first.";
   if (code === "data_unavailable") return "Source unavailable: catalog metadata is missing, stale, or incompatible, or the warehouse cannot be reached.";

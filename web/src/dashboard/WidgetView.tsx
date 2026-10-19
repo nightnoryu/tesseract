@@ -11,7 +11,7 @@ const warnings: Record<string, string> = {
 export function DataTable({result}: {result: Result}) {
   return <div className="overflow-auto max-h-96"><table className="w-full text-left text-sm"><thead><tr>{result.columns.map(c => <th key={c} className="p-2 border-b border-slate-600">{c}</th>)}</tr></thead><tbody>{result.rows.map((row, i) => <tr key={i}>{result.columns.map((c, j) => <td key={c} className="p-2 border-b border-slate-800">{cell(row[j])}</td>)}</tr>)}</tbody></table></div>;
 }
-export default function WidgetView({widget, filters, status, onSessionExpired}: {widget: Widget; filters: Spec["filters"]; status: string; onSessionExpired?: () => void}) {
+export default function WidgetView({dashboardRevision, dashboardId, widget, filters, status, onSessionExpired}: {dashboardRevision?: number; dashboardId?: string; widget: Widget; filters: Spec["filters"]; status: string; onSessionExpired?: () => void}) {
   const [result, setResult] = useState<Result>();
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
@@ -21,15 +21,17 @@ export default function WidgetView({widget, filters, status, onSessionExpired}: 
     if (status !== "ready") return () => controller.abort();
     async function run() {
       try {
-        const {data, error, response} = await api.POST("/api/v1/queries", {body: widgetQuery(widget, filters), signal: controller.signal});
+        const {data, error, response} = dashboardId && dashboardRevision
+          ? await api.POST("/api/v1/dashboards/{dashboardId}/widgets/{widgetId}/query", {params: {path: {dashboardId, widgetId: widget.id}, query: {expectedRevision: dashboardRevision}}, body: filters, signal: controller.signal})
+          : await api.POST("/api/v1/queries", {body: widgetQuery(widget, filters), signal: controller.signal});
         if (controller.signal.aborted) return;
         if (response.status === 401) onSessionExpired?.();
-        if (data) setResult(data); else setError(failure(response.status, error?.error.code));
+        if (data) setResult(data); else setError(response.status === 409 ? "This dashboard changed. Use Reload data before querying again." : failure(response.status, error?.error.code));
       } catch { if (!controller.signal.aborted) setError("Query failed: cannot reach the service."); }
     }
     void run();
     return () => controller.abort();
-  }, [widget, filters, status, attempt, onSessionExpired]);
+  }, [dashboardId, dashboardRevision, widget, filters, status, attempt, onSessionExpired]);
   if (status !== "ready") return <p role="alert">{warnings[status] ?? "Widget validation is missing. Reload the dashboard."}</p>;
   if (error) return <div role="alert"><p>{error}</p><button onClick={() => setAttempt(a => a + 1)}>Retry query</button></div>;
   if (!result) return <p role="status">Loading live data…</p>;

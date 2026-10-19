@@ -9,7 +9,7 @@ const widget: Widget = {id: "count", title: "Leads", kind: "kpi", layout: {x: 0,
 const filters: Spec["filters"] = [{id: "region", operator: "eq", values: [{type: "integer", value: "9007199254740993"}]}];
 const dashboard: Dashboard = {id: "abc", owner: "owner", revision: 3, published_revision: 0, created_at: "", updated_at: "", spec: {version: 1, title: "Sales", widgets: [widget], filters}, widget_states: [{id: "count", status: "ready"}]};
 const success = (value: unknown) => ({data: value, response: {status: 200}});
-afterEach(() => {cleanup(); vi.resetAllMocks();});
+afterEach(() => {cleanup(); window.history.replaceState(null, "", "/"); vi.resetAllMocks();});
 describe("live dashboard", () => {
   it("maps only explicit filters and preserves typed precision and base filters", () => {
     const original = {...widget, query: {...widget.query, filters: [{dimension: "stage", operator: "eq" as const, values: [{type: "string" as const, value: "won"}]}]}};
@@ -58,7 +58,7 @@ describe("live dashboard", () => {
     await screen.findByText("12");
     fireEvent.change(screen.getByLabelText("region 1"), {target: {value: "7"}});
     fireEvent.click(screen.getByRole("button", {name: "Apply filters"}));
-    await waitFor(() => expect((vi.mocked(api.POST).mock.lastCall?.[1] as {body?: unknown} | undefined)?.body).toMatchObject({filters: [{dimension: "region_id", values: [{type: "integer", value: "7"}]}]}));
+    await waitFor(() => expect((vi.mocked(api.POST).mock.lastCall?.[1] as {body?: unknown} | undefined)?.body).toMatchObject([{id: "region", values: [{type: "integer", value: "7"}]}]));
     fireEvent.click(screen.getByRole("button", {name: "Edit"}));
     const editor = screen.getByLabelText("Dashboard specification") as HTMLTextAreaElement;
     const edited = editor.value.replace('"Sales"', '"New sales"');
@@ -99,4 +99,11 @@ it("keeps a pending chat request on reload and uses current revisions for publis
  fireEvent.click(screen.getByRole("button", {name:"Publish"}));
  await screen.findByText(/Published revision 6/);
  expect((vi.mocked(api.POST).mock.calls[1][1] as {body?: unknown} | undefined)?.body).toEqual({expected_revision:5});
+});
+
+it("pins saved-widget requests to the displayed revision and asks to reload stale data", async () => {
+  vi.mocked(api.POST).mockResolvedValueOnce({response: {status: 409}, error: {error: {code: "revision_conflict"}}} as never);
+  render(<WidgetView dashboardId="abc" dashboardRevision={3} widget={widget} filters={filters} status="ready" />);
+  await screen.findByText("This dashboard changed. Use Reload data before querying again.");
+  expect(api.POST).toHaveBeenCalledWith("/api/v1/dashboards/{dashboardId}/widgets/{widgetId}/query", expect.objectContaining({params: {path: {dashboardId: "abc", widgetId: "count"}, query: {expectedRevision: 3}}, body: filters}));
 });
