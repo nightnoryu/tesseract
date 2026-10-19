@@ -180,6 +180,16 @@ func TestDashboardSharing(t *testing.T) {
 }
 
 func sharingWarehouse(t *testing.T, ctx context.Context, cat semantic.Catalog) source.Connector {
+	return newFlowWarehouse(t, ctx, cat).connector
+}
+
+type flowWarehouse struct {
+	connector source.Connector
+	open      func(context.Context, semantic.Catalog, string) (source.Connector, error)
+	stop      func()
+}
+
+func newFlowWarehouse(t *testing.T, ctx context.Context, cat semantic.Catalog) flowWarehouse {
 	t.Helper()
 	const password = "Test-Only-Mssql-2026!"
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{ContainerRequest: testcontainers.ContainerRequest{
@@ -221,11 +231,15 @@ func sharingWarehouse(t *testing.T, ctx context.Context, cat semantic.Catalog) s
 	for _, statement := range []string{
 		"CREATE SCHEMA mart",
 		"CREATE TABLE mart.MarketingLeads (LeadId nvarchar(64), CreatedAt datetime2, ChannelName nvarchar(100), SecretColumn int)",
-		"INSERT INTO mart.MarketingLeads(LeadId,ChannelName) VALUES ('a','paid'),('b','paid'),('c','organic')",
+		"CREATE TABLE mart.Unlisted (Secret nvarchar(100))",
+		"INSERT INTO mart.Unlisted VALUES ('BUSINESS-SECRET-MUST-NOT-BE-COPIED')",
+		"INSERT INTO mart.MarketingLeads(LeadId,ChannelName) VALUES ('BUSINESS-LEAD-MUST-NOT-BE-COPIED','paid'),('b','paid'),('c','organic')",
 		"CREATE LOGIN probe WITH PASSWORD='" + password + "'",
 		"CREATE USER probe FOR LOGIN probe",
 		"ALTER ROLE db_denydatawriter ADD MEMBER probe",
 		"GRANT SELECT ON OBJECT::mart.MarketingLeads TO probe",
+		// Deliberately visible to the principal: TOML must exclude this table.
+		"GRANT SELECT ON OBJECT::mart.Unlisted TO probe",
 	} {
 		if _, err := db.ExecContext(ctx, statement); err != nil {
 			t.Fatal(err)
@@ -236,5 +250,12 @@ func sharingWarehouse(t *testing.T, ctx context.Context, cat semantic.Catalog) s
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { conn.Close() })
-	return conn
+	return flowWarehouse{connector: conn, open: func(ctx context.Context, c semantic.Catalog, id string) (source.Connector, error) {
+		return mssql.Open(ctx, c, id, dsn("probe", "warehouse"), mssql.DefaultConfig())
+	}, stop: func() {
+		t.Helper()
+		if err := container.Stop(ctx, nil); err != nil {
+			t.Fatal(err)
+		}
+	}}
 }
