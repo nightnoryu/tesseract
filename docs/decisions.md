@@ -252,3 +252,26 @@ chunk or renderer fails. An expired dashboard/query session returns to sign-in.
 Vite splits the chart's ZRender dependency into a separate renderer chunk. Both
 chart chunks remain behind the lazy chart import, and each stays below Vite's
 default size warning threshold.
+
+
+## Milestone 15: iterative draft operations and durable chat
+
+An edit is a bounded batch of typed operations against an explicit dashboard
+revision. Operations modify a deep copy and validate the final result, permitting
+related changes (for example, adding a filter and its widget mappings) atomically.
+There is no replace-dashboard tool during editing. The PostgreSQL row lock checks
+the revision again when committing the new spec and its chat/operation history;
+failed history writes roll back the revision. Clarification messages lock/check
+the same revision but do not create a new spec revision. History is owner-scoped,
+paginated and deleted with the dashboard. Pre-creation sessions remain ephemeral;
+their conversation becomes durable in the creation transaction.
+
+Chat edits automatically save a draft. Publish remains an explicit revision-checked
+UI action. Discard appends a revision restoring the last published spec, or revision
+1 if unpublished, and records a discard event. Historical revisions and chat are
+retained. Discard can restore a stored spec after drift; render/publish enforce
+current compatibility. Metadata decoration errors after an edit commits return
+the committed draft with unavailable widget states, avoiding misleading retry
+signals. The synchronous HTTP flow uses the existing turn/tool/time budgets.
+The model sees the current spec plus the latest 18 messages; persisted older
+messages are available to the user through pagination.

@@ -124,9 +124,9 @@ endpoint outside the JSON contract. Errors use
 `{"error":{"code":"not_implemented","message":"..."},"request_id":"..."}`,
 with the same server-generated ID in `X-Request-ID`.
 
-Password authentication is implemented. Dashboard, sharing and chat
-handlers remain reserved and return 501 after authentication; unauthenticated
-requests return 401. No raw SQL request interface is exposed.
+Password/OIDC authentication, dashboard persistence, live queries and chat authoring
+are implemented. Sharing remains reserved for milestone 16. Protected endpoints
+return 401 without a session. No raw SQL request interface is exposed.
 
 ## Semantic catalog
 
@@ -486,7 +486,7 @@ persistent storage or application PostgreSQL.
 Use `mise exec -- pnpm --dir web test` for dashboard component tests. The initial editor is a specification editor. Chat authoring is available when an
 LLM endpoint is configured; sharing remains a later milestone.
 
-### Chat dashboard creation
+### Chat dashboard creation and editing
 
 Set `TESSERACT_LLM_ENDPOINT` to the full OpenAI-compatible chat completions URL
 (for example `https://llm.example/v1/chat/completions`), `TESSERACT_LLM_MODEL` to
@@ -511,10 +511,33 @@ User-entered chat text is sent to the configured provider.
 
 Each request permits six model turns, twelve tool calls, 20 seconds per provider
 request, ten seconds per tool, and 90 seconds overall. Model responses and tool
-results are size bounded. Eight chat requests may run concurrently. Sessions are
-private to a user, held in server memory (maximum 1000), limited to 20 messages,
-and expire after one idle hour or server restart. A successful creation closes
-that conversation; use **New conversation** to create another draft. Iterative
-editing and durable draft-linked chat history belong to milestone 15. On a lost
-connection, check the dashboard list before retrying. LLM count, duration and
-error metrics use fixed `openai_compatible` / `configured` labels on `/metrics`.
+results are size bounded. Eight chat requests may run concurrently. Before creation,
+clarification sessions are private to a user, held in server memory (maximum 1000),
+limited to 20 messages, and expire after one idle hour or server restart. Creation
+saves the conversation with the draft in PostgreSQL. Use **New chat dashboard**
+to create another draft. LLM count, duration and error metrics use fixed
+`openai_compatible` / `configured` labels on `/metrics`.
+
+Select or reopen a dashboard to **Refine with chat**. Ask to add, update, move or
+remove widgets; add, update or remove mapped filters; or rename the dashboard.
+The assistant applies at most 24 typed operations as one batch against the current
+revision. The backend validates the entire resulting spec against the catalog,
+metadata and your entitlements, then commits the new revision, chat and operations
+in one PostgreSQL transaction. An invalid operation or stale revision saves no
+part of the batch. Chat edits are automatically saved as drafts; **Publish** makes
+the current draft the published revision. Reopening preserves the draft and chat.
+**Discard changes** restores the last published spec (or initial draft if never
+published) as a new draft revision, preserving the audit trail. It also works after
+schema drift; rendering marks unavailable widgets, and publishing still validates.
+
+`POST /api/v1/chat` accepts `dashboard_id`, `expected_revision` and `message` for
+edits, without `session_id`. Owner-only `GET /api/v1/dashboards/{id}/chat` returns
+chat and operation history, newest first, with `limit` (default 10, maximum 50)
+and `offset`. `POST /api/v1/dashboards/{id}/discard` takes `expected_revision`.
+A clarification is stored at the current revision without changing the spec.
+The model receives the current draft and up to 18 prior messages; older history
+remains available through pagination. Publishing/discarding are explicit UI
+controls, not model tools. If an edit returns 409, reload the dashboard before
+retrying; your pending request is retained. On a lost connection, reload to check
+whether changes committed before retrying. Deleting a dashboard deletes its chat.
+No analytical query results are stored in chat history.
