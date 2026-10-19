@@ -141,7 +141,7 @@ func TestDashboardLifecycle(t *testing.T) {
 	if d.Revision != 1 || d.Owner != user || d.PublishedRevision != 0 || d.WidgetStates[0].Status != "ready" {
 		t.Fatal(d)
 	}
-	request("GET", path, nil, otherToken, 404)
+	request("GET", path, nil, otherToken, 403)
 	if w := request("GET", "/api/v1/dashboards", nil, otherToken, 200); strings.TrimSpace(w.Body.String()) != "[]" {
 		t.Fatal(w.Body.String())
 	}
@@ -224,7 +224,7 @@ func TestDashboardLifecycle(t *testing.T) {
 	}
 	request("DELETE", path+"?expected_revision=4", nil, token, 409)
 	request("DELETE", path+"?expected_revision=5", nil, token, 204)
-	request("GET", path, nil, token, 404)
+	request("GET", path, nil, token, 403)
 	if err := db.TransactionalClient().GetContext(ctx, &count, `SELECT count(*) FROM tesseract_app.dashboard_revisions WHERE dashboard_id=$1`, d.ID); err != nil || count != 0 {
 		t.Fatal(count, err)
 	}

@@ -248,26 +248,110 @@ paths:
         default:
           $ref: '#/components/responses/Error'
   /api/v1/dashboards/{dashboardId}/shares:
+    parameters:
+    - name: dashboardId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     get:
       operationId: listDashboardShares
-      description: Reserved incremental contract. Returns 501 until its implementation
-        milestone; protected routes return 401 when the session cookie is absent.
-        A valid session is required; no application data is read or written by this reserved handler. Request and success schemas
-        will be introduced with that milestone.
+      description: Owner-only list of explicit viewer grants.
       responses:
-        '501':
-          $ref: '#/components/responses/Error'
+        '200':
+          description: Viewer grants
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DashboardShare'
         default:
           $ref: '#/components/responses/Error'
-        '401':
-          $ref: '#/components/responses/Error'
-      parameters:
-      - name: dashboardId
-        in: path
+    post:
+      operationId: grantDashboardShare
+      requestBody:
         required: true
-        schema:
-          type: string
-          format: uuid
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  minLength: 3
+                  maxLength: 254
+      responses:
+        '204':
+          description: Viewer granted access to published revisions
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/dashboards/{dashboardId}/shares/{userId}:
+    parameters:
+    - name: dashboardId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    - name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    delete:
+      operationId: revokeDashboardShare
+      responses:
+        '204':
+          description: Viewer access revoked
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/dashboards/{dashboardId}/widgets/{widgetId}/query:
+    parameters:
+    - name: dashboardId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    - name: widgetId
+      in: path
+      required: true
+      schema:
+        type: string
+        maxLength: 63
+    - name: expectedRevision
+      in: query
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    post:
+      operationId: queryDashboardWidget
+      description: Checks dashboard access and runs the saved widget under the current viewer's data scope. Filters replace transient dashboard filter values only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              maxItems: 16
+              items:
+                $ref: '#/components/schemas/DashboardFilter'
+      responses:
+        '200':
+          description: Live viewer-scoped aggregates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResult'
+        default:
+          $ref: '#/components/responses/Error'
   /api/v1/chat:
     post:
       operationId: sendChatMessage
@@ -960,6 +1044,16 @@ components:
           - invalid
           - unavailable
           - denied
+    DashboardShare:
+      type: object
+      additionalProperties: false
+      required: [user_id, email]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
     Dashboard:
       type: object
       additionalProperties: false
@@ -973,6 +1067,9 @@ components:
       - spec
       - widget_states
       properties:
+        role:
+          type: string
+          enum: [owner, viewer]
         id:
           type: string
           format: uuid

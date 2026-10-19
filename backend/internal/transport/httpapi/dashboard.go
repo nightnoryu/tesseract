@@ -59,7 +59,7 @@ func (h *contract) GetDashboard(ctx context.Context, p api.GetDashboardParams) (
 	if err != nil {
 		return nil, err
 	}
-	return dashboardResponse(s.Get(ctx, user, p.DashboardId.String()))
+	return dashboardResponse(s.Read(ctx, user, p.DashboardId.String()))
 }
 func (h *contract) SaveDashboardDraft(ctx context.Context, req *api.SaveDashboardDraft, p api.SaveDashboardDraftParams) (*api.Dashboard, error) {
 	s, user, err := h.dashboards(ctx)

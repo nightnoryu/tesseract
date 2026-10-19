@@ -59,6 +59,10 @@ func (h *contract) NewError(ctx context.Context, err error) *api.ErrorStatusCode
 		status, code, message = 400, "invalid_chat", "Invalid or expired chat. Start a new conversation."
 	} else if errors.Is(err, chat.ErrBusy) {
 		status, code, message = 429, "chat_busy", "Chat is busy. Try again shortly."
+	} else if errors.Is(err, dashboard.ErrDenied) {
+		status, code, message = 403, "dashboard_access_denied", "You do not have access to this dashboard."
+	} else if errors.Is(err, dashboard.ErrRecipient) {
+		status, code, message = 400, "share_recipient_unavailable", "No eligible account matches that email."
 	} else if errors.Is(err, dashboard.ErrInvalid) {
 		status, code, message = 400, "invalid_dashboard", "The dashboard specification is invalid."
 	} else if errors.Is(err, dashboard.ErrNotFound) {
