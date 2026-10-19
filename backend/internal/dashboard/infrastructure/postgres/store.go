@@ -60,6 +60,12 @@ func (s Store) List(ctx context.Context, user string, limit, offset int) ([]doma
 	return out, nil
 }
 func (s Store) Create(ctx context.Context, user string, spec domain.Spec) (domain.Dashboard, error) {
+	return s.create(ctx, user, spec, nil)
+}
+func (s Store) CreateTurn(ctx context.Context, user string, spec domain.Spec, turn domain.Turn) (domain.Dashboard, error) {
+	return s.create(ctx, user, spec, &turn)
+}
+func (s Store) create(ctx context.Context, user string, spec domain.Spec, turn *domain.Turn) (domain.Dashboard, error) {
 	raw, err := json.Marshal(spec)
 	if err != nil {
 		return domain.Dashboard{}, err
@@ -77,6 +83,15 @@ func (s Store) Create(ctx context.Context, user string, spec domain.Spec) (domai
 	if _, err = tx.ExecContext(ctx, `INSERT INTO tesseract_app.dashboard_revisions(dashboard_id,revision,published,spec) VALUES ($1,1,false,$2)`, r.ID, string(raw)); err != nil {
 		return domain.Dashboard{}, err
 	}
+	if turn != nil {
+		entries, ops, e := turnJSON(*turn)
+		if e != nil {
+			return domain.Dashboard{}, e
+		}
+		if _, e = tx.ExecContext(ctx, `INSERT INTO tesseract_app.dashboard_chat(dashboard_id,revision,kind,entries,operations) VALUES ($1,$2,$3,$4,$5)`, r.ID, r.Revision, turn.Kind, entries, ops); e != nil {
+			return domain.Dashboard{}, e
+		}
+	}
 	if err = tx.Commit(); err != nil {
 		return domain.Dashboard{}, err
 	}
@@ -84,6 +99,12 @@ func (s Store) Create(ctx context.Context, user string, spec domain.Spec) (domai
 	return r.dashboard()
 }
 func (s Store) Save(ctx context.Context, user, id string, expected int64, spec domain.Spec, publish bool) (domain.Dashboard, error) {
+	return s.save(ctx, user, id, expected, spec, publish, nil)
+}
+func (s Store) SaveTurn(ctx context.Context, user, id string, expected int64, spec domain.Spec, turn domain.Turn) (domain.Dashboard, error) {
+	return s.save(ctx, user, id, expected, spec, false, &turn)
+}
+func (s Store) save(ctx context.Context, user, id string, expected int64, spec domain.Spec, publish bool, turn *domain.Turn) (domain.Dashboard, error) {
 	raw, err := json.Marshal(spec)
 	if err != nil {
 		return domain.Dashboard{}, err
@@ -110,6 +131,15 @@ func (s Store) Save(ctx context.Context, user, id string, expected int64, spec d
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO tesseract_app.dashboard_revisions(dashboard_id,revision,published,spec) VALUES ($1,$2,$3,$4)`, id, r.Revision, publish, string(raw)); err != nil {
 		return domain.Dashboard{}, err
+	}
+	if turn != nil {
+		entries, ops, e := turnJSON(*turn)
+		if e != nil {
+			return domain.Dashboard{}, e
+		}
+		if _, e = tx.ExecContext(ctx, `INSERT INTO tesseract_app.dashboard_chat(dashboard_id,revision,kind,entries,operations) VALUES ($1,$2,$3,$4,$5)`, r.ID, r.Revision, turn.Kind, entries, ops); e != nil {
+			return domain.Dashboard{}, e
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return domain.Dashboard{}, err

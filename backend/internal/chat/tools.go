@@ -112,7 +112,7 @@ func definitions(ctx context.Context, s *dashboard.Service, user, search, datase
 	}
 	return out
 }
-func runTool(ctx context.Context, s *dashboard.Service, user string, c Call) (any, *domain.Dashboard, error) {
+func runTool(ctx context.Context, s *dashboard.Service, user string, c Call, turns ...domain.Turn) (any, *domain.Dashboard, error) {
 	switch c.Function.Name {
 	case "search_catalog", "get_dataset_definition", "get_catalog_availability":
 		var args struct {
@@ -175,7 +175,13 @@ func runTool(ctx context.Context, s *dashboard.Service, user string, c Call) (an
 				return nil, nil, ErrInvalid
 			}
 		}
-		d, err := s.Create(ctx, user, op.Spec)
+		var d domain.Dashboard
+		var err error
+		if len(turns) == 1 {
+			d, err = s.CreateTurn(ctx, user, op.Spec, turns[0])
+		} else {
+			d, err = s.Create(ctx, user, op.Spec)
+		}
 		if err != nil && d.ID == "" {
 			return nil, nil, ErrInvalid
 		}

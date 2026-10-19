@@ -95,6 +95,10 @@ func (s *store) Create(_ context.Context, user string, spec domain.Spec) (domain
 	return domain.Dashboard{ID: "00000000-0000-0000-0000-000000000099", Owner: user, Revision: 1, Spec: spec}, nil
 }
 
+func (s *store) CreateTurn(ctx context.Context, user string, spec domain.Spec, turn domain.Turn) (domain.Dashboard, error) {
+	return s.Create(ctx, user, spec)
+}
+
 const user = "00000000-0000-0000-0000-000000000001"
 
 func fixture(t *testing.T) (*dashboard.Service, *snapshot, *store, *warehouse) {
@@ -238,5 +242,109 @@ func TestToolSchemasHaveValidRequiredArrays(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), `"date_range"`) || !strings.Contains(string(raw), `"filter_mappings"`) {
 		t.Fatal("typed query/dashboard schema missing")
+	}
+}
+
+// A persistent-store stand-in checks orchestration; PostgreSQL atomicity is covered
+// by the API integration test.
+type editStore struct {
+	dashboard.Store
+	d     domain.Dashboard
+	turns []domain.Turn
+	fail  error
+}
+
+func (s *editStore) Get(_ context.Context, user, id string) (domain.Dashboard, error) {
+	if s.d.Owner != user || s.d.ID != id {
+		return domain.Dashboard{}, domain.ErrNotFound
+	}
+	return s.d, nil
+}
+func (s *editStore) Turns(ctx context.Context, user, id string, limit, offset int) ([]domain.Turn, error) {
+	if _, err := s.Get(ctx, user, id); err != nil {
+		return nil, err
+	}
+	return s.turns, nil
+}
+func (s *editStore) SaveTurn(_ context.Context, user, id string, expected int64, spec domain.Spec, turn domain.Turn) (domain.Dashboard, error) {
+	if s.fail != nil {
+		return domain.Dashboard{}, s.fail
+	}
+	if s.d.Revision != expected {
+		return domain.Dashboard{}, domain.ErrConflict
+	}
+	s.d.Revision++
+	s.d.Spec = spec
+	turn.Revision = s.d.Revision
+	s.turns = append([]domain.Turn{turn}, s.turns...)
+	return s.d, nil
+}
+func (s *editStore) RecordTurn(_ context.Context, user, id string, expected int64, turn domain.Turn) error {
+	if s.d.Revision != expected {
+		return domain.ErrConflict
+	}
+	s.turns = append([]domain.Turn{turn}, s.turns...)
+	return nil
+}
+func TestIterativeEditsAndFailures(t *testing.T) {
+	ds, snap, _, warehouse := fixture(t)
+	var args struct {
+		Spec domain.Spec `json:"spec"`
+	}
+	_ = json.Unmarshal([]byte(creation), &args)
+	st := &editStore{d: domain.Dashboard{ID: "00000000-0000-0000-0000-000000000099", Owner: user, Revision: 1, Spec: args.Spec}}
+	ds.Store = st
+	calls := 0
+	response := `{"operations":[{"type":"rename_dashboard","title":"Updated"}]}`
+	client := completer(func(_ context.Context, m []Message, tools []Tool) (Message, error) {
+		calls++
+		raw, _ := json.Marshal(m)
+		if !strings.Contains(string(raw), "Current working draft") || strings.Contains(string(raw), "BUSINESS_SECRET") {
+			t.Fatal(string(raw))
+		}
+		if tools[len(tools)-1].Function.Name != "edit_dashboard" {
+			t.Fatal("creation exposed during edit")
+		}
+		return Message{Role: "assistant", Calls: []Call{call("edit_dashboard", response)}}, nil
+	})
+	s := &Service{Dashboards: ds, Client: client}
+	ctx := context.Background()
+	r, err := s.SendEdit(ctx, user, st.d.ID, 1, "Rename")
+	if err != nil || r.Dashboard == nil || st.d.Revision != 2 || st.d.Spec.Title != "Updated" || len(st.turns) != 1 {
+		t.Fatal(r, err)
+	}
+	before := calls
+	if _, err = s.SendEdit(ctx, user, st.d.ID, 1, "Stale"); err != domain.ErrConflict || calls != before {
+		t.Fatal("stale reached model", err)
+	}
+	if _, err = s.SendEdit(ctx, "other", st.d.ID, 2, "Unauthorized"); err != domain.ErrNotFound || calls != before {
+		t.Fatal(err)
+	}
+	response = `{"operations":[{"type":"rename_dashboard","title":"Partial"},{"type":"remove_widget","id":"missing"}]}`
+	if _, err = s.SendEdit(ctx, user, st.d.ID, 2, "Invalid"); err == nil || st.d.Spec.Title != "Updated" || len(st.turns) != 1 {
+		t.Fatal("partial commit", err)
+	}
+	response = `{"operations":[{"type":"rename_dashboard","title":"Unavailable"}]}`
+	snap.reason = "missing_column"
+	if _, err = s.SendEdit(ctx, user, st.d.ID, 2, "Drift"); !errors.Is(err, source.ErrSchemaUnavailable) || st.d.Revision != 2 {
+		t.Fatal(err)
+	}
+	snap.reason = ""
+	st.fail = errors.New("store failed")
+	if _, err = s.SendEdit(ctx, user, st.d.ID, 2, "Fail"); err != st.fail || st.d.Revision != 2 || len(st.turns) != 1 {
+		t.Fatal(err)
+	}
+	st.fail = nil
+	// A fresh service instance resumes using stored history and the latest draft.
+	s = &Service{Dashboards: ds, Client: completer(func(_ context.Context, m []Message, _ []Tool) (Message, error) {
+		raw, _ := json.Marshal(m)
+		if !strings.Contains(string(raw), "Rename") {
+			t.Fatal("history lost")
+		}
+		return Message{Role: "assistant", Content: "Which chart?"}, nil
+	})}
+	r, err = s.SendEdit(ctx, user, st.d.ID, 2, "Change chart")
+	if err != nil || len(st.turns) != 2 || st.d.Revision != 2 || len(r.History) != 4 || warehouse.calls != 0 {
+		t.Fatal(r, err)
 	}
 }

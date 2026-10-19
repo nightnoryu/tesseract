@@ -271,7 +271,7 @@ paths:
   /api/v1/chat:
     post:
       operationId: sendChatMessage
-      description: Create a dashboard through bounded chat. History is private to the authenticated user, expires after one idle hour, and is cleared on server restart. At most 20 messages per session.
+      description: Create or refine a dashboard through bounded chat. For edits supply dashboard_id and expected_revision together, without session_id. Draft-linked chat and operation history is durable; pre-creation clarification sessions expire after one idle hour. Each successful operation batch saves one revision atomically. Responses contain up to 20 recent messages.
       requestBody:
         required: true
         content:
@@ -285,6 +285,68 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChatResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/dashboards/{dashboardId}/chat:
+    parameters:
+    - name: dashboardId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    get:
+      operationId: listDashboardChat
+      description: Owner-only durable chat and operations, newest turns first.
+      parameters:
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 10
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Chat turns
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DashboardChatTurn'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/dashboards/{dashboardId}/discard:
+    parameters:
+    - name: dashboardId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    post:
+      operationId: discardDashboardDraft
+      description: Restore the last published specification, or initial draft if unpublished, as a new revision. Preserve earlier revisions and chat history.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishDashboard'
+      responses:
+        '200':
+          description: Restored draft
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dashboard'
         default:
           $ref: '#/components/responses/Error'
   /api/v1/dashboards/{dashboardId}:
@@ -423,10 +485,65 @@ components:
         session_id:
           type: string
           format: uuid
+        dashboard_id:
+          type: string
+          format: uuid
+        expected_revision:
+          type: integer
+          format: int64
+          minimum: 1
         message:
           type: string
           minLength: 1
           maxLength: 4000
+    DashboardOperation:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [add_widget, update_widget, remove_widget, move_widget, add_filter, update_filter, remove_filter, rename_dashboard]
+        id:
+          type: string
+        title:
+          type: string
+        widget:
+          $ref: '#/components/schemas/DashboardWidget'
+        filter:
+          $ref: '#/components/schemas/DashboardFilter'
+        layout:
+          $ref: '#/components/schemas/WidgetLayout'
+    ChatEntry:
+      type: object
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+    DashboardChatTurn:
+      type: object
+      required: [revision, kind, entries, operations, created_at]
+      properties:
+        revision:
+          type: integer
+          format: int64
+        kind:
+          type: string
+          enum: [create, edit, message, discard]
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatEntry'
+        operations:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardOperation'
+        created_at:
+          type: string
+          format: date-time
     ChatResponse:
       type: object
       required: [session_id, history]

@@ -5,6 +5,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +21,7 @@ import (
 	analytics "github.com/nightnoryu/tesseract/internal/analytics/app"
 	auth "github.com/nightnoryu/tesseract/internal/auth/app"
 	authstore "github.com/nightnoryu/tesseract/internal/auth/infrastructure/postgres"
+	"github.com/nightnoryu/tesseract/internal/chat"
 	dashboard "github.com/nightnoryu/tesseract/internal/dashboard/app"
 	domain "github.com/nightnoryu/tesseract/internal/dashboard/domain"
 	dashboardstore "github.com/nightnoryu/tesseract/internal/dashboard/infrastructure/postgres"
@@ -93,7 +95,13 @@ func TestDashboardLifecycle(t *testing.T) {
 	conn := &queryConnector{}
 	engine := analytics.Engine{Catalog: cat, Store: snap, MaxAge: time.Minute, Connectors: map[string]source.Connector{"crm_dwh": conn}}
 	service := &dashboard.Service{Store: dashboardstore.Store{DB: db.TransactionalClient()}, Engine: engine, Policy: policy}
-	server := New(db.Ping, &capture{}, telemetry.New(), CatalogConfig{Auth: &AuthConfig{Service: auth.New(authstore.Store{DB: db.TransactionalClient()}), Origin: "https://app.example"}, Dashboards: service})
+	llmCalls := 0
+	llmReply := chat.Message{}
+	assistant := &chat.Service{Dashboards: service, Client: dashboardCompleter(func(_ context.Context, _ []chat.Message, _ []chat.Tool) (chat.Message, error) {
+		llmCalls++
+		return llmReply, nil
+	})}
+	server := New(db.Ping, &capture{}, telemetry.New(), CatalogConfig{Auth: &AuthConfig{Service: auth.New(authstore.Store{DB: db.TransactionalClient()}), Origin: "https://app.example"}, Dashboards: service, Chat: assistant})
 	request := func(method, path string, body any, tok string, want int) *httptest.ResponseRecorder {
 		t.Helper()
 		raw := ""
@@ -220,4 +228,146 @@ func TestDashboardLifecycle(t *testing.T) {
 	if err := db.TransactionalClient().GetContext(ctx, &count, `SELECT count(*) FROM tesseract_app.dashboard_revisions WHERE dashboard_id=$1`, d.ID); err != nil || count != 0 {
 		t.Fatal(count, err)
 	}
+	// Chat creation and iterative editing share the same durable revision store.
+	mutation := func(name string, args any) {
+		raw, err := json.Marshal(args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		llmReply = chat.Message{Role: "assistant", Calls: []chat.Call{{ID: "mutation", Type: "function", Function: chat.Function{Name: name, Arguments: string(raw)}}}}
+	}
+	spec.Title = "Chat draft"
+	mutation("create_dashboard", map[string]any{"type": "create_dashboard", "spec": spec})
+	var chatResult chat.Result
+	w = request("POST", "/api/v1/chat", map[string]any{"message": "Create leads"}, token, 200)
+	if err := json.Unmarshal(w.Body.Bytes(), &chatResult); err != nil || chatResult.Dashboard == nil {
+		t.Fatal(w.Body.String(), err)
+	}
+	d = *chatResult.Dashboard
+	path = "/api/v1/dashboards/" + d.ID
+	historyTurns := func() []domain.Turn {
+		t.Helper()
+		var turns []domain.Turn
+		w := request("GET", path+"/chat", nil, token, 200)
+		if err := json.Unmarshal(w.Body.Bytes(), &turns); err != nil {
+			t.Fatal(err)
+		}
+		return turns
+	}
+	if turns := historyTurns(); len(turns) != 1 || turns[0].Kind != "create" || turns[0].Revision != 1 || len(turns[0].Entries) != 2 {
+		t.Fatal(turns)
+	}
+	request("GET", path+"/chat", nil, otherToken, 404)
+	request("GET", path+"/chat", nil, "", 401)
+	editBody := map[string]any{"dashboard_id": d.ID, "expected_revision": 1, "message": "Rename"}
+	mutation("edit_dashboard", map[string]any{"operations": []domain.Operation{{Type: "rename_dashboard", Title: "Chat edited"}}})
+	w = request("POST", "/api/v1/chat", editBody, token, 200)
+	if err := json.Unmarshal(w.Body.Bytes(), &chatResult); err != nil || chatResult.Dashboard == nil || chatResult.Dashboard.Revision != 2 {
+		t.Fatal(w.Body.String(), err)
+	}
+	if turns := historyTurns(); len(turns) != 2 || turns[0].Operations[0].Type != "rename_dashboard" || turns[0].Revision != 2 {
+		t.Fatal(turns)
+	}
+	beforeCalls := llmCalls
+	request("POST", "/api/v1/chat", editBody, token, 409)
+	request("POST", "/api/v1/chat", editBody, otherToken, 404)
+	if llmCalls != beforeCalls {
+		t.Fatal("stale or unauthorized edit reached model")
+	}
+	editBody["expected_revision"] = 2
+	mutation("edit_dashboard", map[string]any{"operations": []domain.Operation{{Type: "rename_dashboard", Title: "Partial"}, {Type: "remove_widget", ID: "absent"}}})
+	request("POST", "/api/v1/chat", editBody, token, 400)
+	d = read(request("GET", path, nil, token, 200))
+	if d.Revision != 2 || d.Spec.Title != "Chat edited" || len(historyTurns()) != 2 {
+		t.Fatal("partial edit was persisted", d)
+	}
+	badWidget := spec.Widgets[0]
+	badWidget.Query.Metrics = []string{"invented"}
+	mutation("edit_dashboard", map[string]any{"operations": []domain.Operation{{Type: "update_widget", ID: badWidget.ID, Widget: &badWidget}}})
+	request("POST", "/api/v1/chat", editBody, token, 400)
+	mutation("edit_dashboard", map[string]any{"operations": []domain.Operation{{Type: "rename_dashboard", Title: "Drifted"}}})
+	snap.drift = true
+	request("POST", "/api/v1/chat", editBody, token, 503)
+	snap.drift = false
+	// Force history insertion to fail after the revision INSERT. Both must roll back.
+	_, err = service.Store.SaveTurn(ctx, user, d.ID, 2, spec, domain.Turn{Kind: "invalid"})
+	if err == nil {
+		t.Fatal("invalid history accepted")
+	}
+	d = read(request("GET", path, nil, token, 200))
+	if d.Revision != 2 || d.Spec.Title != "Chat edited" || len(historyTurns()) != 2 {
+		t.Fatal("transaction did not roll back")
+	}
+	llmReply = chat.Message{Role: "assistant", Content: "Which chart should change?"}
+	// A fresh chat service has no in-memory session, but resumes this draft.
+	restarted := &chat.Service{Dashboards: service, Client: assistant.Client}
+	if _, err := restarted.SendEdit(ctx, user, d.ID, 2, "Change a chart"); err != nil {
+		t.Fatal(err)
+	}
+	if len(historyTurns()) != 3 {
+		t.Fatal("clarification not durable")
+	}
+	d = read(request("POST", path+"/publish", map[string]int{"expected_revision": 2}, token, 200))
+	if d.PublishedRevision != 3 {
+		t.Fatal(d)
+	}
+	editBody["expected_revision"] = 3
+	mutation("edit_dashboard", map[string]any{"operations": []domain.Operation{{Type: "remove_widget", ID: "count"}}})
+	request("POST", "/api/v1/chat", editBody, token, 200)
+	request("POST", path+"/discard", map[string]int{"expected_revision": 3}, token, 409)
+	request("POST", path+"/discard", map[string]int{"expected_revision": 4}, otherToken, 404)
+	d = read(request("POST", path+"/discard", map[string]int{"expected_revision": 4}, token, 200))
+	if d.Revision != 5 || d.PublishedRevision != 3 || len(d.Spec.Widgets) != 1 || d.Spec.Title != "Chat edited" {
+		t.Fatal(d)
+	}
+	if turns := historyTurns(); len(turns) != 5 || turns[0].Kind != "discard" {
+		t.Fatal(turns)
+	}
+	// Two concurrent edit batches still have exactly one winner and one history event.
+	results = make(chan error, 2)
+	for range 2 {
+		wg.Go(func() {
+			_, err := service.Edit(ctx, user, d.ID, 5, []domain.Operation{{Type: "rename_dashboard", Title: "Concurrent"}}, nil)
+			results <- err
+		})
+	}
+	wg.Wait()
+	close(results)
+	wins, conflicts = 0, 0
+	for err := range results {
+		if err == nil {
+			wins++
+		} else if errors.Is(err, domain.ErrConflict) {
+			conflicts++
+		} else {
+			t.Fatal(err)
+		}
+	}
+	if wins != 1 || conflicts != 1 || len(historyTurns()) != 6 {
+		t.Fatal(wins, conflicts)
+	}
+	// Unpublished discard restores revision 1 and keeps its edit audit trail.
+	fresh, err := service.Create(ctx, user, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, err = service.Edit(ctx, user, fresh.ID, 1, []domain.Operation{{Type: "rename_dashboard", Title: "Temporary"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, err = service.Discard(ctx, user, fresh.ID, 2)
+	if err != nil || fresh.Spec.Title != spec.Title || fresh.Revision != 3 {
+		t.Fatal(fresh, err)
+	}
+	request("DELETE", path+"?expected_revision=6", nil, token, 204)
+	if err := db.TransactionalClient().GetContext(ctx, &count, `SELECT count(*) FROM tesseract_app.dashboard_chat WHERE dashboard_id=$1`, d.ID); err != nil || count != 0 {
+		t.Fatal(count, err)
+	}
+
+}
+
+type dashboardCompleter func(context.Context, []chat.Message, []chat.Tool) (chat.Message, error)
+
+func (f dashboardCompleter) Complete(ctx context.Context, messages []chat.Message, tools []chat.Tool) (chat.Message, error) {
+	return f(ctx, messages, tools)
 }

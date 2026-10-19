@@ -17,6 +17,11 @@ type Store interface {
 	Save(context.Context, string, string, int64, domain.Spec, bool) (domain.Dashboard, error)
 	Delete(context.Context, string, string, int64) error
 	History(context.Context, string, string, int, int) ([]domain.Revision, error)
+	CreateTurn(context.Context, string, domain.Spec, domain.Turn) (domain.Dashboard, error)
+	SaveTurn(context.Context, string, string, int64, domain.Spec, domain.Turn) (domain.Dashboard, error)
+	RecordTurn(context.Context, string, string, int64, domain.Turn) error
+	Turns(context.Context, string, string, int, int) ([]domain.Turn, error)
+	Revision(context.Context, string, string, int64) (domain.Spec, error)
 }
 type Service struct {
 	Store  Store
